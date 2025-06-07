@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Firebase Auth Fix</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .test-section {
+            border: 1px solid #ccc;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+        .success {
+            background-color: #d4edda;
+            border-color: #c3e6cb;
+            color: #155724;
+        }
+        .error {
+            background-color: #f8d7da;
+            border-color: #f5c6cb;
+            color: #721c24;
+        }
+        .info {
+            background-color: #d1ecf1;
+            border-color: #bee5eb;
+            color: #0c5460;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        .disabled {
+            background-color: #6c757d;
+            cursor: not-allowed;
+        }
+        input {
+            width: 200px;
+            padding: 8px;
+            margin: 5px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        .log {
+            background-color: #f8f9fa;
+            border: 1px solid #e9ecef;
+            padding: 10px;
+            border-radius: 4px;
+            font-family: monospace;
+            white-space: pre-wrap;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>Firebase Auth & Database Fix Test</h1>
+    <p>This test verifies that Firebase Authentication state is properly maintained for database access.</p>
+
+    <div class="test-section info">
+        <h3>Test Instructions</h3>
+        <p>1. Enter valid credentials below</p>
+        <p>2. Click "Test Login" to authenticate with Firebase</p>
+        <p>3. Once logged in, test database access</p>
+        <p>4. Check that no permission denied errors occur</p>
+    </div>
+
+    <div class="test-section">
+        <h3>Firebase Authentication Test</h3>
+        <div>
+            <input type="email" id="email" placeholder="Email" value="">
+            <input type="password" id="password" placeholder="Password" value="">
+            <br>
+            <button onclick="testLogin()">Test Login</button>
+            <button onclick="testLogout()" class="disabled" id="logoutBtn" disabled>Test Logout</button>
+        </div>
+        <div id="authStatus" class="log">Ready to test authentication...</div>
+    </div>
+
+    <div class="test-section">
+        <h3>Database Access Test</h3>
+        <button onclick="testDatabaseRead()" class="disabled" id="dbReadBtn" disabled>Test Database Read</button>
+        <button onclick="testAppointmentsFetch()" class="disabled" id="appointmentsBtn" disabled>Test Appointments Access</button>
+        <div id="dbStatus" class="log">Login first to test database access...</div>
+    </div>
+
+    <div class="test-section">
+        <h3>Auth State Monitor</h3>
+        <div id="authStateMonitor" class="log">Monitoring Firebase Auth state changes...</div>
+    </div>
+
+    <!-- Firebase SDK -->
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
+        import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
+        import { getDatabase, ref, onValue, get } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js';
+
+        // Firebase config (same as in your app)
+        const firebaseConfig = {
+            apiKey: "AIzaSyBjKOpdbOAuVnBMqP7fvzjWdh-qtP1OIMM",
+            authDomain: "sociosmile-b6d37.firebaseapp.com",
+            databaseURL: "https://sociosmile-b6d37-default-rtdb.firebaseio.com",
+            projectId: "sociosmile-b6d37",
+            storageBucket: "sociosmile-b6d37.appspot.com",
+            messagingSenderId: "463040121092",
+            appId: "1:463040121092:web:30c7d7a0ed5b7f3ae13ad6"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getDatabase(app);
+
+        let currentUser = null;
+
+        // Log function
+        function logToElement(elementId, message, type = 'info') {
+            const element = document.getElementById(elementId);
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = `[${timestamp}] ${message}\n`;
+            element.textContent += logEntry;
+            element.scrollTop = element.scrollHeight;
+            
+            console.log(`${type.toUpperCase()}: ${message}`);
+        }
+
+        // Monitor auth state changes
+        onAuthStateChanged(auth, (user) => {
+            currentUser = user;
+            if (user) {
+                logToElement('authStateMonitor', `✓ User authenticated: ${user.email} (UID: ${user.uid})`, 'success');
+                document.getElementById('logoutBtn').disabled = false;
+                document.getElementById('logoutBtn').className = '';
+                document.getElementById('dbReadBtn').disabled = false;
+                document.getElementById('dbReadBtn').className = '';
+                document.getElementById('appointmentsBtn').disabled = false;
+                document.getElementById('appointmentsBtn').className = '';
+            } else {
+                logToElement('authStateMonitor', '✗ User signed out', 'info');
+                document.getElementById('logoutBtn').disabled = true;
+                document.getElementById('logoutBtn').className = 'disabled';
+                document.getElementById('dbReadBtn').disabled = true;
+                document.getElementById('dbReadBtn').className = 'disabled';
+                document.getElementById('appointmentsBtn').disabled = true;
+                document.getElementById('appointmentsBtn').className = 'disabled';
+            }
+        });
+
+        // Test login
+        window.testLogin = async function() {
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+
+            if (!email || !password) {
+                logToElement('authStatus', '✗ Please enter email and password', 'error');
+                return;
+            }
+
+            try {
+                logToElement('authStatus', `→ Attempting login with ${email}...`);
+                const userCredential = await signInWithEmailAndPassword(auth, email, password);
+                logToElement('authStatus', `✓ Login successful! User: ${userCredential.user.email}`, 'success');
+                logToElement('authStatus', `✓ Auth token available: ${userCredential.user.accessToken ? 'Yes' : 'No'}`);
+            } catch (error) {
+                logToElement('authStatus', `✗ Login failed: ${error.message}`, 'error');
+            }
+        };
+
+        // Test logout
+        window.testLogout = async function() {
+            try {
+                logToElement('authStatus', '→ Signing out...');
+                await signOut(auth);
+                logToElement('authStatus', '✓ Logout successful', 'success');
+                document.getElementById('dbStatus').textContent = 'Login first to test database access...';
+            } catch (error) {
+                logToElement('authStatus', `✗ Logout failed: ${error.message}`, 'error');
+            }
+        };
+
+        // Test database read
+        window.testDatabaseRead = async function() {
+            if (!currentUser) {
+                logToElement('dbStatus', '✗ No authenticated user', 'error');
+                return;
+            }
+
+            try {
+                logToElement('dbStatus', `→ Testing database read with user ${currentUser.uid}...`);
+                
+                // Test reading user data
+                const userRef = ref(db, `users/${currentUser.uid}`);
+                const snapshot = await get(userRef);
+                
+                if (snapshot.exists()) {
+                    logToElement('dbStatus', '✓ Database read successful - User data found', 'success');
+                    logToElement('dbStatus', `Data: ${JSON.stringify(snapshot.val(), null, 2)}`);
+                } else {
+                    logToElement('dbStatus', '⚠ Database read successful - No user data found (this is normal for new users)', 'info');
+                }
+            } catch (error) {
+                logToElement('dbStatus', `✗ Database read failed: ${error.message}`, 'error');
+                if (error.message.includes('permission_denied') || error.code === 'PERMISSION_DENIED') {
+                    logToElement('dbStatus', '⚠ This indicates the auth fix may not be working properly!', 'error');
+                }
+            }
+        };
+
+        // Test appointments fetch
+        window.testAppointmentsFetch = async function() {
+            if (!currentUser) {
+                logToElement('dbStatus', '✗ No authenticated user', 'error');
+                return;
+            }
+
+            try {
+                logToElement('dbStatus', `→ Testing appointments fetch...`);
+                
+                const appointmentsRef = ref(db, 'appointments');
+                const snapshot = await get(appointmentsRef);
+                
+                if (snapshot.exists()) {
+                    const appointments = snapshot.val();
+                    const userAppointments = Object.entries(appointments).filter(([_, apt]) => apt.userId === currentUser.uid);
+                    logToElement('dbStatus', `✓ Appointments read successful - Found ${userAppointments.length} appointments for user`, 'success');
+                } else {
+                    logToElement('dbStatus', '✓ Appointments read successful - No appointments found', 'info');
+                }
+            } catch (error) {
+                logToElement('dbStatus', `✗ Appointments read failed: ${error.message}`, 'error');
+                if (error.message.includes('permission_denied') || error.code === 'PERMISSION_DENIED') {
+                    logToElement('dbStatus', '⚠ This indicates the auth fix may not be working properly!', 'error');
+                }
+            }
+        };
+
+        logToElement('authStateMonitor', 'Firebase initialized, monitoring auth state...');
+    </script>
+</body>
+</html>

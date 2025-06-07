@@ -1,0 +1,42 @@
+import { initializeApp } from "firebase/app";
+import { getAuth, RecaptchaVerifier } from "firebase/auth";
+import { getDatabase } from "firebase/database";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyAObQWt2VT4PLJz-6i3m0yfyl8rTewiW_0",
+  authDomain: "sociodent-smile-database.firebaseapp.com",
+  databaseURL: "https://sociodent-smile-database-default-rtdb.firebaseio.com",
+  projectId: "sociodent-smile-database",
+  storageBucket: "sociodent-smile-database.firebasestorage.app",
+  messagingSenderId: "820086894749",
+  appId: "1:820086894749:web:f22fb0a0107edcdb332474",
+  measurementId: "G-D215D2Y24L"
+};
+
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
+
+// Initialize Firebase Authentication and get a reference to the service
+const auth = getAuth(app);
+
+// Enable phone authentication persistence
+auth.settings.appVerificationDisabledForTesting = false;
+
+// Initialize Realtime Database and get a reference to the service
+const db = getDatabase(app);
+
+// Add recaptchaVerifier to window object for global access
+declare global {
+  interface Window {
+    recaptchaVerifier: RecaptchaVerifier | null;
+    confirmationResult: any;
+  }
+}
+
+// Initialize window objects if not already defined
+if (typeof window !== 'undefined') {
+  window.recaptchaVerifier = window.recaptchaVerifier || null;
+  window.confirmationResult = window.confirmationResult || null;
+}
+
+export { auth, db };

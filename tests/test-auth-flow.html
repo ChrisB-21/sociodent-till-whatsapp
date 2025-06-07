@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Authentication Flow</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #ccc; }
+        .result { margin: 10px 0; padding: 10px; background: #f9f9f9; }
+        button { padding: 10px 15px; margin: 5px; }
+    </style>
+</head>
+<body>
+    <h1>SocioDent Authentication & Appointment Testing</h1>
+    
+    <div class="test-section">
+        <h2>1. Check localStorage State</h2>
+        <button onclick="checkLocalStorage()">Check Current localStorage</button>
+        <div id="localStorage-result" class="result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>2. Simulate Patient Login</h2>
+        <button onclick="simulatePatientLogin()">Simulate Patient Login</button>
+        <div id="patient-result" class="result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>3. Simulate Admin Login</h2>
+        <button onclick="simulateAdminLogin()">Simulate Admin Login</button>
+        <div id="admin-result" class="result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>4. Test Appointment Creation</h2>
+        <button onclick="testAppointmentCreation()">Create Test Appointment</button>
+        <div id="appointment-result" class="result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>5. Clear localStorage</h2>
+        <button onclick="clearStorage()">Clear All localStorage</button>
+        <div id="clear-result" class="result"></div>
+    </div>
+
+    <script>
+        function checkLocalStorage() {
+            const keys = ['userId', 'uid', 'userEmail', 'userName', 'isAuthenticated', 'userRole'];
+            let result = '<h3>Current localStorage:</h3>';
+            
+            keys.forEach(key => {
+                const value = localStorage.getItem(key);
+                result += `<strong>${key}:</strong> ${value || 'null'}<br>`;
+            });
+            
+            result += '<br><strong>All localStorage keys:</strong><br>';
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                result += `${key}: ${localStorage.getItem(key)}<br>`;
+            }
+            
+            document.getElementById('localStorage-result').innerHTML = result;
+        }
+
+        function simulatePatientLogin() {
+            // Simulate what happens when a patient logs in
+            const patientData = {
+                uid: 'patient123',
+                email: 'patient@test.com',
+                fullName: 'Test Patient',
+                role: 'patient'
+            };
+            
+            // Set both keys as our fix does
+            localStorage.setItem('uid', patientData.uid);
+            localStorage.setItem('userId', patientData.uid);
+            localStorage.setItem('userEmail', patientData.email);
+            localStorage.setItem('userName', patientData.fullName);
+            localStorage.setItem('userRole', patientData.role);
+            localStorage.setItem('isAuthenticated', 'true');
+            
+            document.getElementById('patient-result').innerHTML = 
+                '<strong>Patient login simulated!</strong><br>' +
+                'uid: ' + patientData.uid + '<br>' +
+                'userId: ' + patientData.uid + '<br>' +
+                'Now both keys are set for compatibility.';
+        }
+
+        function simulateAdminLogin() {
+            // Simulate what happens when an admin logs in
+            const adminData = {
+                uid: 'admin123',
+                email: 'admin@test.com',
+                fullName: 'Test Admin',
+                role: 'admin'
+            };
+            
+            // Set both keys as our fix does
+            localStorage.setItem('uid', adminData.uid);
+            localStorage.setItem('userId', adminData.uid);
+            localStorage.setItem('userEmail', adminData.email);
+            localStorage.setItem('userName', adminData.fullName);
+            localStorage.setItem('userRole', adminData.role);
+            localStorage.setItem('isAuthenticated', 'true');
+            
+            document.getElementById('admin-result').innerHTML = 
+                '<strong>Admin login simulated!</strong><br>' +
+                'uid: ' + adminData.uid + '<br>' +
+                'userId: ' + adminData.uid + '<br>' +
+                'Now both keys are set for compatibility.';
+        }
+
+        function testAppointmentCreation() {
+            // Test the appointment creation logic
+            const userId = localStorage.getItem('userId') || localStorage.getItem('uid');
+            
+            if (!userId) {
+                document.getElementById('appointment-result').innerHTML = 
+                    '<strong style="color: red;">Error: No user ID found!</strong><br>' +
+                    'This would cause appointments to not be associated with users.';
+                return;
+            }
+            
+            const appointmentData = {
+                patientId: userId,
+                doctorId: 'doctor123',
+                date: '2024-12-01',
+                time: '10:00 AM',
+                status: 'confirmed'
+            };
+            
+            document.getElementById('appointment-result').innerHTML = 
+                '<strong style="color: green;">Appointment would be created with:</strong><br>' +
+                'Patient ID: ' + appointmentData.patientId + '<br>' +
+                'Doctor ID: ' + appointmentData.doctorId + '<br>' +
+                'Date: ' + appointmentData.date + '<br>' +
+                'Time: ' + appointmentData.time + '<br>' +
+                'Status: ' + appointmentData.status + '<br>' +
+                '<strong>This appointment should now be visible in MyAppointments!</strong>';
+        }
+
+        function clearStorage() {
+            localStorage.clear();
+            document.getElementById('clear-result').innerHTML = 
+                '<strong>All localStorage cleared!</strong>';
+        }
+
+        // Auto-check localStorage on page load
+        window.onload = function() {
+            checkLocalStorage();
+        };
+    </script>
+</body>
+</html>

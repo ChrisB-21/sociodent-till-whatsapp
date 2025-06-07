@@ -1,0 +1,398 @@
+import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Users, BarChart, ShoppingBag, Settings, Database, Shield, FileText, Check, X, BadgeHelp } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { useToast } from '@/hooks/use-toast';
+import { auth, db } from '@/firebase';
+import { ref, onValue } from "firebase/database";
+import { onAuthStateChanged, signOut } from "firebase/auth";
+
+// Utility to check if user is admin
+const isAdmin = (user: any, profile: any) => {
+  // For testing - allow specific email to bypass restriction
+  if (user?.email === "saiaravindanstudiesonly@gmail.com") {
+    console.log("Admin access granted for test user");
+    return true;
+  }
+  // Check if the profile has admin role
+  if (profile?.role === "admin") {
+    return true;
+  }
+  // Also check if the user's email is an admin email as a fallback
+  return false;
+};
+
+const AdminPortal = () => {
+  const [firebaseUser, setFirebaseUser] = useState<any>(null);
+  const [adminProfile, setAdminProfile] = useState<any>(null);
+  const [users, setUsers] = useState<any[]>([]);
+  const [activeTab, setActiveTab] = useState('dashboard');
+  const navigate = useNavigate();
+  const { toast } = useToast();
+
+  // Doctor verification requests (mock for now)
+  const verificationRequests = [
+    { id: 1, name: 'Dr. Michael Johnson', email: 'michael@example.com', specialization: 'Orthodontist', experience: '8 years', submittedDate: '2023-04-15', status: 'pending' },
+    { id: 2, name: 'Dr. Emma Williams', email: 'emma@example.com', specialization: 'Periodontist', experience: '5 years', submittedDate: '2023-04-14', status: 'pending' },
+    { id: 3, name: 'Dr. James Brown', email: 'james@example.com', specialization: 'Endodontist', experience: '12 years', submittedDate: '2023-04-13', status: 'approved' },
+    { id: 4, name: 'Dr. Sophia Garcia', email: 'sophia@example.com', specialization: 'Pediatric Dentist', experience: '7 years', submittedDate: '2023-04-12', status: 'rejected' }
+  ];
+
+  // Listen for auth state and fetch admin profile
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (!user) {
+        toast({
+          title: "Access Denied",
+          description: "You must be logged in as an admin to access this page",
+          variant: "destructive"
+        });
+        navigate('/auth?mode=login&role=admin', { replace: true });
+        return;
+      }
+      setFirebaseUser(user);      // Fetch admin profile from DB
+      const adminRef = ref(db, `users/${user.uid}`);
+      onValue(adminRef, (snapshot) => {
+        const profile = snapshot.val();
+        console.log("User profile data:", profile);
+        console.log("User email:", user.email);
+        console.log("User role from profile:", profile?.role);
+        setAdminProfile(profile);
+        if (!isAdmin(user, profile)) {
+          toast({
+            title: "Access Denied",
+            description: "You don't have admin privileges",
+            variant: "destructive"
+          });
+          signOut(auth);
+          navigate('/auth?mode=login');
+        }
+      });
+    });
+    return () => unsubscribe();
+  }, [navigate, toast]);
+
+  // Fetch all registered users
+  useEffect(() => {
+    if (!firebaseUser || !isAdmin(firebaseUser, adminProfile)) return;
+    const usersRef = ref(db, 'users');
+    const unsubscribe = onValue(usersRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        const usersArray = Object.entries(data).map(([id, user]: any) => ({
+          id,
+          ...user
+        }));
+        usersArray.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+        setUsers(usersArray);
+      } else {
+        setUsers([]);
+      }
+    });
+    return () => unsubscribe();
+  }, [firebaseUser, adminProfile]);
+
+  if (!firebaseUser || !isAdmin(firebaseUser, adminProfile)) {
+    return (
+      <div className="min-h-screen flex items-center justify-center text-gray-500">
+        Loading admin portal...
+      </div>
+    );
+  }
+
+  const tabs = [
+    { id: 'dashboard', name: 'Dashboard', icon: <BarChart className="w-5 h-5 mr-2" /> },
+    { id: 'users', name: 'User Management', icon: <Users className="w-5 h-5 mr-2" /> },
+    { id: 'doctors', name: 'Doctors', icon: <BadgeHelp className="w-5 h-5 mr-2" /> },
+    { id: 'verifications', name: 'Doctor Verifications', icon: <FileText className="w-5 h-5 mr-2" /> },
+    { id: 'products', name: 'Products', icon: <ShoppingBag className="w-5 h-5 mr-2" /> },
+    { id: 'reports', name: 'Reports', icon: <FileText className="w-5 h-5 mr-2" /> },
+    { id: 'database', name: 'Database', icon: <Database className="w-5 h-5 mr-2" /> },
+    { id: 'security', name: 'Security', icon: <Shield className="w-5 h-5 mr-2" /> },
+    { id: 'settings', name: 'Settings', icon: <Settings className="w-5 h-5 mr-2" /> }
+  ];
+
+  // Stats
+  const stats = [
+    { title: 'Total Users', value: users.length, change: '+0%', changeType: 'positive' },
+  ];
+
+  const handleApproveDoctor = (id: number) => {
+    toast({
+      title: "Doctor Approved",
+      description: "The doctor has been verified and can now access the platform.",
+    });
+  };
+
+  const handleRejectDoctor = (id: number) => {
+    toast({
+      title: "Doctor Rejected",
+      description: "The doctor's verification request has been rejected.",
+      variant: "destructive"
+    });
+  };
+
+  const handleViewDocuments = (id: number) => {
+    toast({
+      title: "Viewing Documents",
+      description: "Opening document viewer...",
+    });
+  };
+
+  return (
+    <div className="min-h-screen flex flex-col bg-gray-50">
+      <header className="bg-sociodent-600 text-white px-6 py-4 flex justify-between items-center">
+        <h1 className="text-2xl font-bold">Admin Portal</h1>
+        <div className="flex items-center gap-4">
+          <span className="font-medium">{adminProfile?.fullName || firebaseUser.email}</span>
+          <button
+            onClick={() => signOut(auth)}
+            className="bg-white text-sociodent-600 rounded px-4 py-2 font-semibold"
+          >
+            Sign Out
+          </button>
+        </div>
+      </header>
+      <main className="flex flex-1 pt-20">
+        {/* Sidebar */}
+        <nav className="w-64 bg-white border-r min-h-full p-4">
+          <ul className="space-y-1">
+            {tabs.map((tab) => (
+              <li key={tab.id}>
+                <button
+                  className={cn(
+                    "w-full flex items-center px-4 py-3 rounded-lg transition-colors",
+                    activeTab === tab.id
+                      ? "bg-sociodent-100 text-sociodent-700 font-semibold"
+                      : "text-gray-700 hover:bg-gray-100"
+                  )}
+                  onClick={() => setActiveTab(tab.id)}
+                >
+                  {tab.icon}
+                  <span>{tab.name}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </nav>
+        {/* Main Content */}
+        <section className="flex-1 p-8">
+          {activeTab === 'dashboard' && (
+            <>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+                {stats.map((stat, index) => (
+                  <div key={index} className="bg-white rounded-xl shadow-sm p-6">
+                    <p className="text-gray-500 text-sm">{stat.title}</p>
+                    <div className="flex items-end justify-between mt-2">
+                      <p className="text-2xl font-bold text-gray-900">{stat.value}</p>
+                      <span className={cn(
+                        "text-sm",
+                        stat.changeType === 'positive' ? "text-green-600" : "text-red-600"
+                      )}>
+                        {stat.change}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="bg-white rounded-xl shadow-sm p-6">
+                <div className="flex justify-between items-center mb-6">
+                  <h2 className="text-xl font-semibold">Recent Users</h2>
+                  <button
+                    className="text-sociodent-600 hover:text-sociodent-700 text-sm font-medium"
+                    onClick={() => setActiveTab('users')}
+                  >
+                    View All
+                  </button>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-gray-50">
+                        <th className="px-4 py-3 text-left font-medium text-gray-700">Name</th>
+                        <th className="px-4 py-3 text-left font-medium text-gray-700">Email</th>
+                        <th className="px-4 py-3 text-left font-medium text-gray-700">Phone</th>
+                        <th className="px-4 py-3 text-left font-medium text-gray-700">Registered On</th>
+                        <th className="px-4 py-3 text-left font-medium text-gray-700">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {users.slice(0, 5).map((user) => (
+                        <tr key={user.id} className="border-b">
+                          <td className="px-4 py-4">{user.fullName || user.name || "N/A"}</td>
+                          <td className="px-4 py-4">{user.email || "N/A"}</td>
+                          <td className="px-4 py-4">{user.phone || "N/A"}</td>
+                          <td className="px-4 py-4">
+                            {user.createdAt
+                              ? new Date(user.createdAt).toLocaleDateString()
+                              : "N/A"}
+                          </td>
+                          <td className="px-4 py-4">
+                            <button
+                              className="text-sociodent-600 hover:text-sociodent-700"
+                              onClick={() => setActiveTab('users')}
+                            >
+                              View
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                      {users.length === 0 && (
+                        <tr>
+                          <td colSpan={5} className="text-center py-6 text-gray-500">
+                            No registered users found.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </>
+          )}
+
+          {activeTab === 'users' && (
+            <div className="bg-white rounded-xl shadow-sm p-6">
+              <h2 className="text-xl font-semibold mb-6">User Management</h2>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-gray-50">
+                      <th className="px-4 py-3 text-left font-medium text-gray-700">Name</th>
+                      <th className="px-4 py-3 text-left font-medium text-gray-700">Email</th>
+                      <th className="px-4 py-3 text-left font-medium text-gray-700">Phone</th>
+                      <th className="px-4 py-3 text-left font-medium text-gray-700">State</th>
+                      <th className="px-4 py-3 text-left font-medium text-gray-700">City</th>
+                      <th className="px-4 py-3 text-left font-medium text-gray-700">Registered On</th>
+                      <th className="px-4 py-3 text-left font-medium text-gray-700">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {users.map((user) => (
+                      <tr key={user.id} className="border-b">
+                        <td className="px-4 py-4">{user.fullName || user.name || "N/A"}</td>
+                        <td className="px-4 py-4">{user.email || "N/A"}</td>
+                        <td className="px-4 py-4">{user.phone || "N/A"}</td>
+                        <td className="px-4 py-4">{user.state || "N/A"}</td>
+                        <td className="px-4 py-4">{user.city || "N/A"}</td>
+                        <td className="px-4 py-4">
+                          {user.createdAt
+                            ? new Date(user.createdAt).toLocaleDateString()
+                            : "N/A"}
+                        </td>
+                        <td className="px-4 py-4">
+                          <button className="text-sociodent-600 hover:text-sociodent-700">View</button>
+                        </td>
+                      </tr>
+                    ))}
+                    {users.length === 0 && (
+                      <tr>
+                        <td colSpan={7} className="text-center py-6 text-gray-500">
+                          No registered users found.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'verifications' && (
+            <div className="bg-white rounded-xl shadow-sm p-6">
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-xl font-semibold">Doctor Verification Requests</h2>
+                <div className="flex gap-2">
+                  <select className="text-sm border rounded-md px-2 py-1">
+                    <option value="all">All Requests</option>
+                    <option value="pending">Pending</option>
+                    <option value="approved">Approved</option>
+                    <option value="rejected">Rejected</option>
+                  </select>
+                </div>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-gray-50">
+                      <th className="px-4 py-3 text-left font-medium text-gray-700">Name</th>
+                      <th className="px-4 py-3 text-left font-medium text-gray-700">Email</th>
+                      <th className="px-4 py-3 text-left font-medium text-gray-700">Specialization</th>
+                      <th className="px-4 py-3 text-left font-medium text-gray-700">Experience</th>
+                      <th className="px-4 py-3 text-left font-medium text-gray-700">Date</th>
+                      <th className="px-4 py-3 text-left font-medium text-gray-700">Status</th>
+                      <th className="px-4 py-3 text-left font-medium text-gray-700">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {verificationRequests.map((request) => (
+                      <tr key={request.id} className="border-b">
+                        <td className="px-4 py-4 font-medium">{request.name}</td>
+                        <td className="px-4 py-4">{request.email}</td>
+                        <td className="px-4 py-4">{request.specialization}</td>
+                        <td className="px-4 py-4">{request.experience}</td>
+                        <td className="px-4 py-4">{request.submittedDate}</td>
+                        <td className="px-4 py-4">
+                          <span className={cn(
+                            "px-2 py-1 rounded-full text-xs",
+                            request.status === 'approved' ? "bg-green-100 text-green-800" :
+                            request.status === 'rejected' ? "bg-red-100 text-red-800" :
+                            "bg-yellow-100 text-yellow-800"
+                          )}>
+                            {request.status.charAt(0).toUpperCase() + request.status.slice(1)}
+                          </span>
+                        </td>
+                        <td className="px-4 py-4">
+                          <div className="flex space-x-2">
+                            <button
+                              className="text-blue-600 hover:text-blue-700"
+                              onClick={() => handleViewDocuments(request.id)}
+                            >
+                              View
+                            </button>
+                            {request.status === 'pending' && (
+                              <>
+                                <button
+                                  className="text-green-600 hover:text-green-700"
+                                  onClick={() => handleApproveDoctor(request.id)}
+                                >
+                                  <Check size={16} />
+                                </button>
+                                <button
+                                  className="text-red-600 hover:text-red-700"
+                                  onClick={() => handleRejectDoctor(request.id)}
+                                >
+                                  <X size={16} />
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'doctors' && (
+            <div className="bg-white rounded-xl shadow-sm p-6">
+              <h2 className="text-xl font-semibold mb-6">Doctor Management</h2>
+              <p className="text-gray-600">Manage doctors, approvals, and verifications.</p>
+            </div>
+          )}
+
+          {activeTab === 'settings' && (
+            <div className="bg-white rounded-xl shadow-sm p-6">
+              <h2 className="text-xl font-semibold mb-6">Settings</h2>
+              <p className="text-gray-600">Admin settings go here.</p>
+            </div>
+          )}
+        </section>
+      </main>
+    </div>
+  );
+};
+
+export default AdminPortal;

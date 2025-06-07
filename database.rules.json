@@ -1,0 +1,42 @@
+{
+  "rules": {
+    ".read": "auth != null",
+    ".write": "auth != null",
+    
+    "appointments": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      "$appointmentId": {
+        ".read": "auth != null",
+        ".write": "auth != null || !data.exists()"
+      }
+    },
+    
+    "users": {
+      ".read": "auth != null",
+      ".write": "auth != null || !data.exists()",
+      "$userId": {
+        ".read": "auth != null || $userId === auth.uid",
+        ".write": "auth != null || $userId === auth.uid || !data.exists()"
+      }
+    },
+    
+    "doctorSchedules": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      "$scheduleId": {
+        ".read": "auth != null",
+        ".write": "auth != null"
+      }
+    },
+    
+    "notifications": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      "$userId": {
+        ".read": "auth != null || $userId === auth.uid",
+        ".write": "auth != null || $userId === auth.uid"
+      }
+    }
+  }
+}

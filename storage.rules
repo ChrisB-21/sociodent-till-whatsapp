@@ -1,0 +1,22 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      // Allow read access to anyone
+      allow read;
+      
+      // Allow write access only to authenticated users
+      allow write: if request.auth != null;
+      
+      // Allow write access to test folder for testing CORS
+      match /test/{fileName} {
+        allow read, write;
+      }
+      
+      // Allow uploads to user folders for consultation reports (temporary solution)
+      match /users/{userId}/{folderType}/{fileName} {
+        allow read, write;
+      }
+    }
+  }
+}

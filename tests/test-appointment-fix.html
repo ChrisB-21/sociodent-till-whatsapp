@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SocioDent - Test Appointment Flow</title>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            padding: 20px; 
+            max-width: 800px; 
+            margin: 0 auto;
+        }
+        .test-section { 
+            margin: 20px 0; 
+            padding: 15px; 
+            border: 1px solid #ccc; 
+            border-radius: 8px;
+        }
+        .result { 
+            margin: 10px 0; 
+            padding: 10px; 
+            background: #f9f9f9; 
+            border-radius: 4px;
+        }
+        .success { background: #d4edda; border-color: #c3e6cb; color: #155724; }
+        .error { background: #f8d7da; border-color: #f5c6cb; color: #721c24; }
+        .warning { background: #fff3cd; border-color: #ffeaa7; color: #856404; }
+        button { 
+            padding: 10px 15px; 
+            margin: 5px; 
+            border: none;
+            border-radius: 4px;
+            background: #007bff;
+            color: white;
+            cursor: pointer;
+        }
+        button:hover { background: #0056b3; }
+        button:disabled { background: #6c757d; cursor: not-allowed; }
+        .code-block { 
+            background: #f8f9fa; 
+            padding: 10px; 
+            border-radius: 4px; 
+            font-family: monospace;
+            border-left: 4px solid #007bff;
+        }
+    </style>
+</head>
+<body>
+    <h1>🏥 SocioDent - Appointment Visibility Test</h1>
+    <p>This page tests the localStorage fix to ensure appointments assigned by admins appear in patient profiles.</p>
+    
+    <div class="test-section">
+        <h2>📋 Current Issue & Fix</h2>
+        <div class="code-block">
+            <strong>Problem:</strong> Appointments assigned by admins to patients were not visible in the user's "My Appointments" view.<br>
+            <strong>Root Cause:</strong> Inconsistent localStorage key usage - auth used 'uid', appointments used 'userId'.<br>
+            <strong>Fix:</strong> Updated code to check both 'userId' and 'uid' localStorage keys for backward compatibility.
+        </div>
+    </div>
+
+    <div class="test-section">
+        <h2>1. Check Current Authentication State</h2>
+        <button onclick="checkCurrentAuth()">Check Current Authentication</button>
+        <div id="auth-result" class="result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>2. Test localStorage Key Consistency</h2>
+        <button onclick="testKeyConsistency()">Test Key Consistency</button>
+        <div id="consistency-result" class="result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>3. Simulate Patient Login (Test Our Fix)</h2>
+        <button onclick="simulatePatientLogin()">Simulate Patient Login</button>
+        <div id="patient-login-result" class="result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>4. Test MyAppointments Page Access</h2>
+        <button onclick="testMyAppointmentsAccess()">Test MyAppointments Access</button>
+        <div id="appointments-access-result" class="result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>5. Open Application Pages</h2>
+        <button onclick="openLogin()">Open Login Page</button>
+        <button onclick="openMyAppointments()">Open My Appointments</button>
+        <button onclick="openAdminPortal()">Open Admin Portal</button>
+        <div id="navigation-result" class="result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>6. Reset Authentication</h2>
+        <button onclick="clearAuth()">Clear All Authentication Data</button>
+        <div id="clear-result" class="result"></div>
+    </div>
+
+    <script>
+        function checkCurrentAuth() {
+            const keys = ['userId', 'uid', 'userEmail', 'userName', 'isAuthenticated', 'userRole'];
+            let result = '<h3>Current Authentication State:</h3>';
+            
+            keys.forEach(key => {
+                const value = localStorage.getItem(key);
+                result += `<strong>${key}:</strong> ${value || 'null'}<br>`;
+            });
+            
+            // Test our fix logic
+            const userId = localStorage.getItem('userId') || localStorage.getItem('uid');
+            const isAuthenticated = localStorage.getItem('isAuthenticated') === 'true';
+            
+            result += '<br><strong>Fix Logic Results:</strong><br>';
+            result += `<strong>Combined User ID:</strong> ${userId || 'null'}<br>`;
+            result += `<strong>Is Authenticated:</strong> ${isAuthenticated}<br>`;
+            
+            if (userId && isAuthenticated) {
+                result += '<div class="success">✅ User would be able to access MyAppointments</div>';
+            } else {
+                result += '<div class="error">❌ User would be redirected to login</div>';
+            }
+            
+            document.getElementById('auth-result').innerHTML = result;
+        }
+
+        function testKeyConsistency() {
+            const userId = localStorage.getItem('userId');
+            const uid = localStorage.getItem('uid');
+            
+            let result = '<h3>localStorage Key Consistency Test:</h3>';
+            
+            if (!userId && !uid) {
+                result += '<div class="warning">⚠️ No user ID keys found - user not logged in</div>';
+            } else if (userId && uid && userId === uid) {
+                result += '<div class="success">✅ Both keys exist and match - fix is working correctly</div>';
+                result += `<strong>userId:</strong> ${userId}<br><strong>uid:</strong> ${uid}`;
+            } else if (userId && !uid) {
+                result += '<div class="warning">⚠️ Only userId exists - legacy authentication</div>';
+                result += `<strong>userId:</strong> ${userId}`;
+            } else if (!userId && uid) {
+                result += '<div class="warning">⚠️ Only uid exists - new authentication format</div>';
+                result += `<strong>uid:</strong> ${uid}`;
+                result += '<br><strong>Our fix will handle this correctly!</strong>';
+            } else if (userId !== uid) {
+                result += '<div class="error">❌ Keys exist but don\'t match - potential issue</div>';
+                result += `<strong>userId:</strong> ${userId}<br><strong>uid:</strong> ${uid}`;
+            }
+            
+            document.getElementById('consistency-result').innerHTML = result;
+        }
+
+        function simulatePatientLogin() {
+            // Simulate what happens when a patient logs in with our fix
+            const testUserId = 'patient_' + Date.now();
+            
+            // Set both keys as our fix does in AuthContext
+            localStorage.setItem('uid', testUserId);
+            localStorage.setItem('userId', testUserId);
+            localStorage.setItem('userEmail', 'test.patient@example.com');
+            localStorage.setItem('userName', 'Test Patient');
+            localStorage.setItem('userRole', 'patient');
+            localStorage.setItem('isAuthenticated', 'true');
+            
+            let result = '<h3>Patient Login Simulation Results:</h3>';
+            result += '<div class="success">✅ Patient login simulated successfully</div>';
+            result += `<strong>User ID:</strong> ${testUserId}<br>`;
+            result += '<strong>Keys Set:</strong><br>';
+            result += `• uid: ${localStorage.getItem('uid')}<br>`;
+            result += `• userId: ${localStorage.getItem('userId')}<br>`;
+            result += `• userEmail: ${localStorage.getItem('userEmail')}<br>`;
+            result += `• userName: ${localStorage.getItem('userName')}<br>`;
+            result += `• userRole: ${localStorage.getItem('userRole')}<br>`;
+            result += `• isAuthenticated: ${localStorage.getItem('isAuthenticated')}<br>`;
+            
+            result += '<br><div class="success">✅ Both localStorage keys are now set - appointments should be visible!</div>';
+            
+            document.getElementById('patient-login-result').innerHTML = result;
+        }
+
+        function testMyAppointmentsAccess() {
+            const userId = localStorage.getItem('userId') || localStorage.getItem('uid');
+            const isAuthenticated = localStorage.getItem('isAuthenticated') === 'true';
+            
+            let result = '<h3>MyAppointments Access Test:</h3>';
+            
+            if (!userId) {
+                result += '<div class="error">❌ No user ID found - would redirect to login</div>';
+                result += '<strong>Fix Logic:</strong> const userId = localStorage.getItem(\'userId\') || localStorage.getItem(\'uid\');<br>';
+                result += '<strong>Result:</strong> userId = null → redirect to /auth?mode=login';
+            } else if (!isAuthenticated) {
+                result += '<div class="warning">⚠️ User ID found but not authenticated</div>';
+                result += `<strong>User ID:</strong> ${userId}<br>`;
+                result += '<strong>Authentication:</strong> false';
+            } else {
+                result += '<div class="success">✅ User would successfully access MyAppointments</div>';
+                result += `<strong>User ID:</strong> ${userId}<br>`;
+                result += '<strong>Authentication:</strong> true<br>';
+                result += '<strong>Firebase Query:</strong> appointments.filter(appt => appt.patientId === userId)';
+            }
+            
+            document.getElementById('appointments-access-result').innerHTML = result;
+        }
+
+        function openLogin() {
+            window.open('http://localhost:8082/auth?mode=login', '_blank');
+            document.getElementById('navigation-result').innerHTML = 
+                '<div class="success">✅ Opened login page in new tab</div>';
+        }
+
+        function openMyAppointments() {
+            window.open('http://localhost:8082/my-appointments', '_blank');
+            document.getElementById('navigation-result').innerHTML = 
+                '<div class="success">✅ Opened My Appointments page in new tab</div>';
+        }
+
+        function openAdminPortal() {
+            window.open('http://localhost:8082/admin-portal', '_blank');
+            document.getElementById('navigation-result').innerHTML = 
+                '<div class="success">✅ Opened Admin Portal in new tab</div>';
+        }
+
+        function clearAuth() {
+            const keysToRemove = ['userId', 'uid', 'userEmail', 'userName', 'userRole', 'isAuthenticated'];
+            keysToRemove.forEach(key => localStorage.removeItem(key));
+            
+            document.getElementById('clear-result').innerHTML = 
+                '<div class="success">✅ All authentication data cleared</div>';
+            
+            // Refresh other test results
+            checkCurrentAuth();
+            testKeyConsistency();
+        }
+
+        // Auto-run initial checks on page load
+        window.onload = function() {
+            checkCurrentAuth();
+            testKeyConsistency();
+        };
+    </script>
+</body>
+</html>

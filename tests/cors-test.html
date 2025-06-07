@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Firebase Storage CORS Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .result {
+            margin: 10px 0;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .success {
+            background-color: #d4edda;
+            border-color: #c3e6cb;
+        }
+        .error {
+            background-color: #f8d7da;
+            border-color: #f5c6cb;
+        }
+        button {
+            padding: 8px 12px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 8px;
+        }
+        #results {
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Firebase Storage CORS Test</h1>
+    <p>This page tests CORS configuration for Firebase Storage.</p>
+    
+    <div>
+        <button id="testRead">Test Read</button>
+        <button id="testUpload">Test Upload</button>
+        <button id="clearResults">Clear Results</button>
+    </div>
+    
+    <div id="results"></div>
+
+    <!-- Import Firebase SDK -->
+    <script type="module">
+        // Import Firebase modules
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.3.0/firebase-app.js";
+        import { getStorage, ref, uploadString, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.3.0/firebase-storage.js";
+
+        // Firebase configuration
+        const firebaseConfig = {
+            apiKey: "AIzaSyAObQWt2VT4PLJz-6i3m0yfyl8rTewiW_0",
+            authDomain: "sociodent-smile-database.firebaseapp.com",
+            databaseURL: "https://sociodent-smile-database-default-rtdb.firebaseio.com/",
+            projectId: "sociodent-smile-database",
+            storageBucket: "sociodent-smile-database.firebasestorage.app",
+            messagingSenderId: "820086894749",
+            appId: "1:820086894749:web:f22fb0a0107edcdb332474",
+            measurementId: "G-D215D2Y24L"
+        };
+
+        // Initialize Firebase
+        const app = initializeApp(firebaseConfig);
+        const storage = getStorage(app);
+        
+        // Get DOM elements
+        const testReadBtn = document.getElementById('testRead');
+        const testUploadBtn = document.getElementById('testUpload');
+        const clearResultsBtn = document.getElementById('clearResults');
+        const resultsDiv = document.getElementById('results');
+        
+        // Add result to the results div
+        function addResult(message, isSuccess = true) {
+            const resultDiv = document.createElement('div');
+            resultDiv.className = `result ${isSuccess ? 'success' : 'error'}`;
+            resultDiv.textContent = message;
+            resultsDiv.prepend(resultDiv);
+        }
+        
+        // Test reading from Firebase Storage
+        async function testRead() {
+            try {
+                // Reference to the test file
+                const testFileRef = ref(storage, 'test/cors-test.txt');
+                
+                // Get download URL
+                addResult('Getting download URL...');
+                const downloadURL = await getDownloadURL(testFileRef);
+                addResult(`Download URL: ${downloadURL}`);
+                
+                // Fetch the file
+                addResult('Fetching file...');
+                const response = await fetch(downloadURL);
+                
+                if (response.ok) {
+                    const content = await response.text();
+                    addResult(`File content: ${content}`);
+                    addResult('✅ READ TEST PASSED: CORS is configured correctly for read operations');
+                } else {
+                    addResult(`Error: ${response.status} ${response.statusText}`, false);
+                }
+            } catch (error) {
+                addResult(`Error: ${error.message}`, false);
+                console.error('Error:', error);
+            }
+        }
+        
+        // Test uploading to Firebase Storage
+        async function testUpload() {
+            try {
+                // Generate unique filename
+                const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+                const testFileRef = ref(storage, `test/browser-test-${timestamp}.txt`);
+                
+                // Upload content
+                const content = `Test upload from browser at ${new Date().toString()}`;
+                addResult('Uploading file...');
+                await uploadString(testFileRef, content);
+                
+                // Get download URL
+                const downloadURL = await getDownloadURL(testFileRef);
+                addResult(`File uploaded successfully. URL: ${downloadURL}`);
+                addResult('✅ UPLOAD TEST PASSED: CORS is configured correctly for write operations');
+            } catch (error) {
+                addResult(`Error: ${error.message}`, false);
+                console.error('Error:', error);
+            }
+        }
+        
+        // Add event listeners
+        testReadBtn.addEventListener('click', testRead);
+        testUploadBtn.addEventListener('click', testUpload);
+        clearResultsBtn.addEventListener('click', () => {
+            resultsDiv.innerHTML = '';
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Firebase Storage Upload Test</title>
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
+        import { getStorage, ref, uploadBytes, getDownloadURL } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-storage.js';
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyAObQWt2VT4PLJz-6i3m0yfyl8rTewiW_0",
+            authDomain: "sociodent-smile-database.firebaseapp.com",
+            databaseURL: "https://sociodent-smile-database-default-rtdb.firebaseio.com",
+            projectId: "sociodent-smile-database",
+            storageBucket: "sociodent-smile-database.firebasestorage.app",
+            messagingSenderId: "820086894749",
+            appId: "1:820086894749:web:f22fb0a0107edcdb332474",
+            measurementId: "G-D215D2Y24L"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const storage = getStorage(app);
+
+        window.testUpload = async function() {
+            try {
+                // Create a test file
+                const testContent = "This is a test file for Firebase Storage upload.";
+                const blob = new Blob([testContent], { type: 'text/plain' });
+                const file = new File([blob], 'test-upload.txt', { type: 'text/plain' });
+
+                console.log('Testing file upload to Firebase Storage...');
+                console.log('File:', file.name, file.size, file.type);
+
+                const userId = 'test-user-' + Date.now();
+                const filePath = `users/${userId}/reports/test-${Date.now()}.txt`;
+                const fileRef = ref(storage, filePath);
+
+                console.log('Uploading to path:', filePath);
+
+                await uploadBytes(fileRef, file);
+                const downloadURL = await getDownloadURL(fileRef);
+
+                console.log('Upload successful!');
+                console.log('Download URL:', downloadURL);
+                console.log('File path:', filePath);
+
+                document.getElementById('result').innerHTML = `
+                    <div style="color: green; padding: 10px; border: 1px solid green; border-radius: 5px; margin: 10px 0;">
+                        <strong>Upload Successful!</strong><br>
+                        <strong>File Path:</strong> ${filePath}<br>
+                        <strong>Download URL:</strong> <a href="${downloadURL}" target="_blank">${downloadURL}</a>
+                    </div>
+                `;
+
+                return { downloadURL, filePath };
+            } catch (error) {
+                console.error('Upload failed:', error);
+                document.getElementById('result').innerHTML = `
+                    <div style="color: red; padding: 10px; border: 1px solid red; border-radius: 5px; margin: 10px 0;">
+                        <strong>Upload Failed!</strong><br>
+                        <strong>Error:</strong> ${error.message}
+                    </div>
+                `;
+                throw error;
+            }
+        };
+
+        console.log('Firebase Storage test ready. Call testUpload() to run the test.');
+    </script>
+</head>
+<body>
+    <h1>Firebase Storage Upload Test</h1>
+    <button onclick="testUpload()">Test File Upload</button>
+    <div id="result"></div>
+</body>
+</html>

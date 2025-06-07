@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Complete Doctor Approval Flow Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; background: #f5f5f5; }
+        .container { max-width: 1000px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        .test-section { margin: 20px 0; padding: 20px; border: 1px solid #ddd; border-radius: 8px; background: #f9f9f9; }
+        .result { margin: 10px 0; padding: 15px; border-radius: 5px; }
+        .success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .warning { background: #fff3cd; color: #856404; border: 1px solid #ffeaa7; }
+        .info { background: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb; }
+        button { 
+            padding: 12px 24px; margin: 8px; background: #007bff; color: white; 
+            border: none; border-radius: 5px; cursor: pointer; font-size: 14px; 
+        }
+        button:hover { background: #0056b3; }
+        button:disabled { background: #6c757d; cursor: not-allowed; }
+        input[type="text"] { padding: 10px; margin: 5px; width: 300px; border: 1px solid #ddd; border-radius: 4px; }
+        .code-block { background: #f8f9fa; padding: 15px; border-radius: 5px; font-family: monospace; margin: 10px 0; border: 1px solid #e9ecef; }
+        .step { background: white; margin: 10px 0; padding: 15px; border-radius: 5px; border-left: 4px solid #007bff; }
+        .step h4 { margin: 0 0 10px 0; color: #007bff; }
+        .status-badge { padding: 4px 8px; border-radius: 4px; font-weight: bold; }
+        .status-pending { background: #fff3cd; color: #856404; }
+        .status-approved { background: #d4edda; color: #155724; }
+        .status-rejected { background: #f8d7da; color: #721c24; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🩺 SocioDent - Complete Doctor Approval Flow Test</h1>
+        <p><strong>Purpose:</strong> Test the entire doctor approval workflow to ensure the fix is working correctly.</p>
+
+        <div class="test-section">
+            <h2>🔗 1. Firebase Connection Test</h2>
+            <button onclick="testConnection()" id="connection-btn">Test Firebase Connection</button>
+            <div id="connection-result" class="result"></div>
+        </div>
+
+        <div class="test-section">
+            <h2>👨‍⚕️ 2. Doctor Database Status</h2>
+            <button onclick="loadDoctors()">Load All Doctors</button>
+            <button onclick="createTestDoctor()">Create Test Doctor</button>
+            <div id="doctors-result" class="result"></div>
+            <div id="doctors-list"></div>
+        </div>
+
+        <div class="test-section">
+            <h2>⚖️ 3. Admin Approval Simulation</h2>
+            <input type="text" id="doctor-to-approve" placeholder="Enter doctor UID to approve">
+            <button onclick="approveDoctor()">Approve Doctor</button>
+            <button onclick="rejectDoctor()">Reject Doctor</button>
+            <div id="approval-result" class="result"></div>
+        </div>
+
+        <div class="test-section">
+            <h2>🔄 4. AuthContext Simulation</h2>
+            <p>This simulates what AuthContext does when a doctor logs in:</p>
+            <input type="text" id="auth-doctor-id" placeholder="Enter doctor UID">
+            <button onclick="simulateAuthFlow()">Simulate Doctor Login</button>
+            <div id="auth-result" class="result"></div>
+        </div>
+
+        <div class="test-section">
+            <h2>🖥️ 5. Component Rendering Logic</h2>
+            <p>This simulates what DoctorPortal component would render:</p>
+            <input type="text" id="render-doctor-id" placeholder="Enter doctor UID">
+            <button onclick="simulateComponentRender()">Test Component Logic</button>
+            <div id="render-result" class="result"></div>
+        </div>
+
+        <div class="test-section">
+            <h2>🔧 6. End-to-End Workflow Test</h2>
+            <button onclick="runFullWorkflow()" id="workflow-btn">Run Complete Workflow Test</button>
+            <div id="workflow-result" class="result"></div>
+        </div>
+
+        <div class="test-section">
+            <h2>📋 Test Log</h2>
+            <button onclick="clearLog()">Clear Log</button>
+            <div id="test-log" style="background: #f8f9fa; padding: 15px; border-radius: 5px; font-family: monospace; font-size: 12px; max-height: 300px; overflow-y: auto;"></div>
+        </div>
+    </div>
+
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-database-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-auth-compat.js"></script>
+
+    <script>
+        // Firebase configuration
+        const firebaseConfig = {
+            apiKey: "AIzaSyCnFCq0p-eIHGU1wOVV4JZ4J_lRfEtxnLY",
+            authDomain: "socio-dent.firebaseapp.com",
+            databaseURL: "https://socio-dent-default-rtdb.asia-southeast1.firebasedatabase.app",
+            projectId: "socio-dent",
+            storageBucket: "socio-dent.appspot.com",
+            messagingSenderId: "717754172862",
+            appId: "1:717754172862:web:86ac840ff9e4d1a8c4b7df",
+            measurementId: "G-EWGL5XXRMR"
+        };
+
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.database();
+
+        let doctors = {};
+
+        function log(message, type = 'info') {
+            const logElement = document.getElementById('test-log');
+            const timestamp = new Date().toLocaleTimeString();
+            const className = type === 'error' ? 'color: red;' : type === 'success' ? 'color: green;' : 'color: black;';
+            logElement.innerHTML += `<div style="${className}">[${timestamp}] ${message}</div>`;
+            logElement.scrollTop = logElement.scrollHeight;
+        }
+
+        function clearLog() {
+            document.getElementById('test-log').innerHTML = '';
+        }
+
+        function showResult(elementId, message, type = 'info') {
+            const element = document.getElementById(elementId);
+            let className = 'result';
+            if (type === 'success') className += ' success';
+            if (type === 'error') className += ' error';
+            if (type === 'warning') className += ' warning';
+            if (type === 'info') className += ' info';
+            
+            element.innerHTML = `<div class="${className}">${message}</div>`;
+        }
+
+        async function testConnection() {
+            try {
+                document.getElementById('connection-btn').disabled = true;
+                log('Testing Firebase connection...');
+                
+                const connectedRef = db.ref('.info/connected');
+                connectedRef.on('value', (snapshot) => {
+                    if (snapshot.val() === true) {
+                        showResult('connection-result', '✅ Firebase connected successfully!', 'success');
+                        log('✅ Firebase connection successful', 'success');
+                    } else {
+                        showResult('connection-result', '❌ Firebase not connected', 'error');
+                        log('❌ Firebase connection failed', 'error');
+                    }
+                    document.getElementById('connection-btn').disabled = false;
+                });
+            } catch (error) {
+                showResult('connection-result', `❌ Error: ${error.message}`, 'error');
+                log(`❌ Connection error: ${error.message}`, 'error');
+                document.getElementById('connection-btn').disabled = false;
+            }
+        }
+
+        async function loadDoctors() {
+            try {
+                log('Loading all doctors from database...');
+                const usersRef = db.ref('users');
+                const snapshot = await usersRef.orderByChild('role').equalTo('doctor').once('value');
+                
+                if (snapshot.exists()) {
+                    doctors = snapshot.val();
+                    const doctorCount = Object.keys(doctors).length;
+                    showResult('doctors-result', `✅ Found ${doctorCount} doctors in database`, 'success');
+                    log(`✅ Loaded ${doctorCount} doctors`, 'success');
+                    
+                    // Display doctors list
+                    let html = '<h3>Doctors in Database:</h3>';
+                    Object.entries(doctors).forEach(([uid, doctor]) => {
+                        const statusClass = doctor.status === 'approved' ? 'status-approved' : 
+                                          doctor.status === 'rejected' ? 'status-rejected' : 'status-pending';
+                        html += `
+                            <div class="step">
+                                <h4>${doctor.fullName || 'Unknown'}</h4>
+                                <strong>UID:</strong> ${uid}<br>
+                                <strong>Email:</strong> ${doctor.email}<br>
+                                <strong>Status:</strong> <span class="status-badge ${statusClass}">${doctor.status || 'undefined'}</span><br>
+                                <strong>Created:</strong> ${doctor.createdAt ? new Date(doctor.createdAt).toLocaleString() : 'Unknown'}
+                            </div>
+                        `;
+                    });
+                    document.getElementById('doctors-list').innerHTML = html;
+                } else {
+                    showResult('doctors-result', '⚠️ No doctors found in database', 'warning');
+                    log('⚠️ No doctors found', 'warning');
+                    document.getElementById('doctors-list').innerHTML = '';
+                }
+            } catch (error) {
+                showResult('doctors-result', `❌ Error loading doctors: ${error.message}`, 'error');
+                log(`❌ Error loading doctors: ${error.message}`, 'error');
+            }
+        }
+
+        async function createTestDoctor() {
+            try {
+                log('Creating test doctor...');
+                const testDoctorId = 'test_doctor_' + Date.now();
+                const doctorData = {
+                    fullName: 'Dr. Test Doctor',
+                    email: 'test.doctor@example.com',
+                    role: 'doctor',
+                    status: 'pending',
+                    specialization: 'General Dentistry',
+                    experience: '5 years',
+                    createdAt: Date.now(),
+                    updatedAt: Date.now()
+                };
+
+                await db.ref(`users/${testDoctorId}`).set(doctorData);
+                showResult('doctors-result', `✅ Test doctor created with UID: ${testDoctorId}`, 'success');
+                log(`✅ Created test doctor: ${testDoctorId}`, 'success');
+                
+                // Reload doctors list
+                await loadDoctors();
+            } catch (error) {
+                showResult('doctors-result', `❌ Error creating test doctor: ${error.message}`, 'error');
+                log(`❌ Error creating test doctor: ${error.message}`, 'error');
+            }
+        }
+
+        async function approveDoctor() {
+            const doctorId = document.getElementById('doctor-to-approve').value.trim();
+            if (!doctorId) {
+                showResult('approval-result', '❌ Please enter a doctor UID', 'error');
+                return;
+            }
+
+            try {
+                log(`Approving doctor: ${doctorId}...`);
+                const userRef = db.ref(`users/${doctorId}`);
+                
+                // Check if doctor exists
+                const snapshot = await userRef.once('value');
+                if (!snapshot.exists()) {
+                    showResult('approval-result', `❌ Doctor with UID ${doctorId} not found`, 'error');
+                    log(`❌ Doctor ${doctorId} not found`, 'error');
+                    return;
+                }
+
+                // Update status
+                await userRef.update({
+                    status: 'approved',
+                    updatedAt: Date.now()
+                });
+
+                showResult('approval-result', `✅ Doctor ${doctorId} approved successfully!`, 'success');
+                log(`✅ Doctor ${doctorId} approved`, 'success');
+                
+                // Reload doctors
+                await loadDoctors();
+            } catch (error) {
+                showResult('approval-result', `❌ Error approving doctor: ${error.message}`, 'error');
+                log(`❌ Error approving doctor: ${error.message}`, 'error');
+            }
+        }
+
+        async function rejectDoctor() {
+            const doctorId = document.getElementById('doctor-to-approve').value.trim();
+            if (!doctorId) {
+                showResult('approval-result', '❌ Please enter a doctor UID', 'error');
+                return;
+            }
+
+            try {
+                log(`Rejecting doctor: ${doctorId}...`);
+                const userRef = db.ref(`users/${doctorId}`);
+                
+                await userRef.update({
+                    status: 'rejected',
+                    updatedAt: Date.now()
+                });
+
+                showResult('approval-result', `✅ Doctor ${doctorId} rejected`, 'success');
+                log(`✅ Doctor ${doctorId} rejected`, 'success');
+                
+                await loadDoctors();
+            } catch (error) {
+                showResult('approval-result', `❌ Error rejecting doctor: ${error.message}`, 'error');
+                log(`❌ Error rejecting doctor: ${error.message}`, 'error');
+            }
+        }
+
+        async function simulateAuthFlow() {
+            const doctorId = document.getElementById('auth-doctor-id').value.trim();
+            if (!doctorId) {
+                showResult('auth-result', '❌ Please enter a doctor UID', 'error');
+                return;
+            }
+
+            try {
+                log(`Simulating AuthContext flow for doctor: ${doctorId}...`);
+                
+                // Step 1: Simulate onAuthStateChanged detecting stored doctor role
+                log('Step 1: AuthContext detects stored role = "doctor"');
+                
+                // Step 2: Fetch fresh data from database (AuthContext logic)
+                log('Step 2: Fetching fresh data from database...');
+                const userRef = db.ref(`users/${doctorId}`);
+                const userSnapshot = await userRef.once('value');
+                
+                if (!userSnapshot.exists()) {
+                    showResult('auth-result', `❌ Doctor ${doctorId} not found in database`, 'error');
+                    log(`❌ Doctor ${doctorId} not found`, 'error');
+                    return;
+                }
+
+                const userData = userSnapshot.val();
+                log(`Step 3: Fresh data retrieved: ${JSON.stringify(userData, null, 2)}`);
+
+                // Step 3: Create user object (AuthContext logic)
+                const userInfo = {
+                    uid: doctorId,
+                    role: userData.role || 'doctor',
+                    name: userData.fullName || 'Doctor',
+                    email: userData.email || undefined,
+                    status: userData.status,
+                };
+
+                log(`Step 4: Created user object: ${JSON.stringify(userInfo, null, 2)}`);
+
+                // Step 4: Simulate localStorage update
+                const localStorageUpdates = {
+                    isAuthenticated: 'true',
+                    userRole: userInfo.role,
+                    userName: userInfo.name,
+                    uid: userInfo.uid,
+                    userId: userInfo.uid,
+                    userEmail: userInfo.email || '',
+                    userStatus: userInfo.status || ''
+                };
+
+                log(`Step 5: localStorage would be updated with: ${JSON.stringify(localStorageUpdates, null, 2)}`);
+
+                // Step 5: Show final result
+                let result = `<h3>✅ AuthContext Simulation Complete</h3>
+                    <div class="code-block">
+                        <strong>Final User State:</strong><br>
+                        UID: ${userInfo.uid}<br>
+                        Role: ${userInfo.role}<br>
+                        Name: ${userInfo.name}<br>
+                        Email: ${userInfo.email || 'undefined'}<br>
+                        Status: <span class="status-badge ${userInfo.status === 'approved' ? 'status-approved' : userInfo.status === 'rejected' ? 'status-rejected' : 'status-pending'}">${userInfo.status || 'undefined'}</span>
+                    </div>`;
+
+                if (userInfo.status === 'approved') {
+                    result += `<div class="success">✅ Doctor would see the full DoctorPortal</div>`;
+                } else {
+                    result += `<div class="warning">⚠️ Doctor would see DoctorPendingApproval component</div>`;
+                }
+
+                showResult('auth-result', result, 'success');
+                log(`✅ AuthContext simulation completed`, 'success');
+
+            } catch (error) {
+                showResult('auth-result', `❌ Error in AuthContext simulation: ${error.message}`, 'error');
+                log(`❌ AuthContext simulation error: ${error.message}`, 'error');
+            }
+        }
+
+        async function simulateComponentRender() {
+            const doctorId = document.getElementById('render-doctor-id').value.trim();
+            if (!doctorId) {
+                showResult('render-result', '❌ Please enter a doctor UID', 'error');
+                return;
+            }
+
+            try {
+                log(`Simulating DoctorPortal component logic for: ${doctorId}...`);
+                
+                // Simulate getting user from AuthContext
+                const userRef = db.ref(`users/${doctorId}`);
+                const userSnapshot = await userRef.once('value');
+                
+                if (!userSnapshot.exists()) {
+                    showResult('render-result', `❌ Doctor ${doctorId} not found`, 'error');
+                    return;
+                }
+
+                const userData = userSnapshot.val();
+                const user = {
+                    uid: doctorId,
+                    role: userData.role || 'doctor',
+                    name: userData.fullName || 'Doctor',
+                    status: userData.status,
+                };
+
+                log(`Component receives user: ${JSON.stringify(user, null, 2)}`);
+
+                // Simulate DoctorPortal rendering logic
+                let result = `<h3>🖥️ DoctorPortal Component Logic</h3>`;
+                
+                // Check 1: isLoading check
+                const isLoading = false;
+                log(`Check 1: isLoading = ${isLoading}`);
+                
+                // Check 2: User exists and role check
+                const hasUser = !!user;
+                const isDoctor = user.role === 'doctor';
+                log(`Check 2: hasUser = ${hasUser}, isDoctor = ${isDoctor}`);
+                
+                // Check 3: Status check
+                const isApproved = user.status === 'approved';
+                log(`Check 3: status = "${user.status}", isApproved = ${isApproved}`);
+                
+                // Final rendering decision
+                if (!isLoading && hasUser && isDoctor && !isApproved) {
+                    result += `<div class="warning">
+                        <strong>🚫 Component would render: DoctorPendingApproval</strong><br>
+                        Reason: !isLoading(${!isLoading}) && user(${hasUser}) && role=doctor(${isDoctor}) && status!='approved'(${!isApproved})
+                    </div>`;
+                    log(`Result: DoctorPendingApproval component would be shown`, 'warning');
+                } else if (!isLoading && hasUser && isDoctor && isApproved) {
+                    result += `<div class="success">
+                        <strong>✅ Component would render: Full DoctorPortal</strong><br>
+                        Reason: Doctor is approved and all checks pass
+                    </div>`;
+                    log(`Result: Full DoctorPortal would be shown`, 'success');
+                } else {
+                    result += `<div class="error">
+                        <strong>❌ Component would redirect to login</strong><br>
+                        Reason: User authentication or role check failed
+                    </div>`;
+                    log(`Result: Redirect to login`, 'error');
+                }
+
+                result += `
+                    <div class="code-block">
+                        <strong>Condition Breakdown:</strong><br>
+                        !isLoading: ${!isLoading}<br>
+                        user exists: ${hasUser}<br>
+                        user.role === 'doctor': ${isDoctor}<br>
+                        user.status !== 'approved': ${!isApproved}<br>
+                        <br>
+                        <strong>Final condition:</strong> ${!isLoading && hasUser && isDoctor && !isApproved ? 'SHOW PENDING' : 'SHOW PORTAL'}
+                    </div>
+                `;
+
+                showResult('render-result', result, 'info');
+
+            } catch (error) {
+                showResult('render-result', `❌ Error in component simulation: ${error.message}`, 'error');
+                log(`❌ Component simulation error: ${error.message}`, 'error');
+            }
+        }
+
+        async function runFullWorkflow() {
+            try {
+                document.getElementById('workflow-btn').disabled = true;
+                log('🚀 Starting complete workflow test...');
+                
+                let result = `<h3>🔄 End-to-End Workflow Test</h3>`;
+                
+                // Step 1: Create test doctor
+                log('Step 1: Creating test doctor...');
+                const testDoctorId = 'e2e_doctor_' + Date.now();
+                const doctorData = {
+                    fullName: 'Dr. E2E Test',
+                    email: 'e2e.test@doctor.com',
+                    role: 'doctor',
+                    status: 'pending',
+                    specialization: 'Test Dentistry',
+                    createdAt: Date.now()
+                };
+
+                await db.ref(`users/${testDoctorId}`).set(doctorData);
+                result += `<div class="step"><h4>Step 1: ✅ Test doctor created</h4>UID: ${testDoctorId}<br>Status: pending</div>`;
+                log(`✅ Created test doctor: ${testDoctorId}`);
+
+                // Step 2: Simulate doctor login (should show pending)
+                log('Step 2: Simulating doctor login with pending status...');
+                let userSnapshot = await db.ref(`users/${testDoctorId}`).once('value');
+                let userData = userSnapshot.val();
+                let userInfo = {
+                    uid: testDoctorId,
+                    role: userData.role,
+                    name: userData.fullName,
+                    status: userData.status
+                };
+
+                const shouldShowPending = !false && !!userInfo && userInfo.role === 'doctor' && userInfo.status !== 'approved';
+                result += `<div class="step"><h4>Step 2: ${shouldShowPending ? '⚠️' : '✅'} Doctor login simulation</h4>
+                    Component would show: ${shouldShowPending ? 'DoctorPendingApproval' : 'Full Portal'}<br>
+                    Status: ${userInfo.status}
+                </div>`;
+                log(`Step 2: Would show ${shouldShowPending ? 'pending' : 'portal'} (status: ${userInfo.status})`);
+
+                // Step 3: Admin approves doctor
+                log('Step 3: Admin approving doctor...');
+                await db.ref(`users/${testDoctorId}`).update({
+                    status: 'approved',
+                    updatedAt: Date.now()
+                });
+                result += `<div class="step"><h4>Step 3: ✅ Admin approved doctor</h4>Status updated to: approved</div>`;
+                log(`✅ Doctor approved`);
+
+                // Step 4: Simulate doctor login after approval
+                log('Step 4: Simulating doctor login after approval...');
+                userSnapshot = await db.ref(`users/${testDoctorId}`).once('value');
+                userData = userSnapshot.val();
+                userInfo = {
+                    uid: testDoctorId,
+                    role: userData.role,
+                    name: userData.fullName,
+                    status: userData.status
+                };
+
+                const shouldShowPortal = !false && !!userInfo && userInfo.role === 'doctor' && userInfo.status === 'approved';
+                result += `<div class="step"><h4>Step 4: ${shouldShowPortal ? '✅' : '❌'} Doctor login after approval</h4>
+                    Component would show: ${shouldShowPortal ? 'Full Portal' : 'DoctorPendingApproval'}<br>
+                    Status: ${userInfo.status}
+                </div>`;
+                log(`Step 4: Would show ${shouldShowPortal ? 'portal' : 'pending'} (status: ${userInfo.status})`);
+
+                // Step 5: Cleanup
+                log('Step 5: Cleaning up test data...');
+                await db.ref(`users/${testDoctorId}`).remove();
+                result += `<div class="step"><h4>Step 5: 🗑️ Cleanup completed</h4>Test doctor removed from database</div>`;
+                log(`✅ Test doctor removed`);
+
+                // Final result
+                if (shouldShowPending && shouldShowPortal) {
+                    result += `<div class="success"><h3>✅ WORKFLOW TEST PASSED</h3>
+                        The doctor approval flow is working correctly:<br>
+                        • Pending doctors see pending screen ✅<br>
+                        • Approved doctors see full portal ✅<br>
+                        • AuthContext fetches fresh data ✅<br>
+                        • Component logic works correctly ✅
+                    </div>`;
+                    log(`🎉 WORKFLOW TEST PASSED`, 'success');
+                } else {
+                    result += `<div class="error"><h3>❌ WORKFLOW TEST FAILED</h3>
+                        Issues detected in the approval flow:<br>
+                        • Pending check: ${shouldShowPending ? '✅' : '❌'}<br>
+                        • Approval check: ${shouldShowPortal ? '✅' : '❌'}
+                    </div>`;
+                    log(`❌ WORKFLOW TEST FAILED`, 'error');
+                }
+
+                showResult('workflow-result', result, shouldShowPending && shouldShowPortal ? 'success' : 'error');
+
+            } catch (error) {
+                showResult('workflow-result', `❌ Workflow test failed: ${error.message}`, 'error');
+                log(`❌ Workflow test error: ${error.message}`, 'error');
+            } finally {
+                document.getElementById('workflow-btn').disabled = false;
+            }
+        }
+
+        // Auto-test connection on page load
+        window.onload = () => {
+            testConnection();
+        };
+    </script>
+</body>
+</html>

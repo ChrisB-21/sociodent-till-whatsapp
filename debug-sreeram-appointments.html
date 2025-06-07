@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Debug SREERAM Appointments</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; max-width: 800px; margin: 0 auto; }
+        .result { margin: 10px 0; padding: 10px; background: #f9f9f9; border-radius: 4px; }
+        .error { background: #f8d7da; color: #721c24; }
+        .success { background: #d4edda; color: #155724; }
+        .warning { background: #fff3cd; color: #856404; }
+        button { padding: 10px 15px; margin: 5px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        .code { background: #f8f9fa; padding: 10px; font-family: monospace; border-left: 4px solid #007bff; }
+    </style>
+</head>
+<body>
+    <h1>🔍 Debug SREERAM Appointments Issue</h1>
+    <p>This page will help us debug why appointments aren't showing for SREERAM.</p>
+    
+    <div class="result">
+        <strong>Current User:</strong> SREERAM (rangaji2000@gmail.com)<br>
+        <strong>Issue:</strong> "No appointments found" showing in My Appointments page
+    </div>
+
+    <button onclick="debugLocalStorage()">1. Check localStorage</button>
+    <button onclick="debugAppointments()">2. Check Appointments</button>
+    <button onclick="debugUserMatch()">3. Test User Matching</button>
+    <button onclick="simulateFix()">4. Simulate Fix</button>
+    
+    <div id="debug-output"></div>
+
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
+        import { getDatabase, ref, onValue } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js';
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyAObQWt2VT4PLJz-6i3m0yfyl8rTewiW_0",
+            authDomain: "sociodent-smile-database.firebaseapp.com",
+            databaseURL: "https://sociodent-smile-database-default-rtdb.firebaseio.com",
+            projectId: "sociodent-smile-database",
+            storageBucket: "sociodent-smile-database.firebasestorage.app",
+            messagingSenderId: "820086894749",
+            appId: "1:820086894749:web:f22fb0a0107edcdb332474",
+            measurementId: "G-D215D2Y24L"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getDatabase(app);
+
+        window.debugLocalStorage = function() {
+            let output = '<h3>📋 localStorage State</h3>';
+            
+            const keys = ['userId', 'uid', 'userEmail', 'userName', 'isAuthenticated', 'userRole'];
+            keys.forEach(key => {
+                const value = localStorage.getItem(key);
+                output += `<strong>${key}:</strong> ${value || 'null'}<br>`;
+            });
+            
+            // Test our fix logic
+            const userId = localStorage.getItem('userId') || localStorage.getItem('uid');
+            output += `<br><strong>Our Fix Result:</strong> ${userId || 'null'}<br>`;
+            
+            if (!userId) {
+                output += '<div class="error">❌ No user ID found - this would redirect to login</div>';
+            } else {
+                output += '<div class="success">✅ User ID found - should access appointments</div>';
+            }
+            
+            document.getElementById('debug-output').innerHTML = output;
+        };
+
+        window.debugAppointments = function() {
+            const userId = localStorage.getItem('userId') || localStorage.getItem('uid');
+            const userEmail = localStorage.getItem('userEmail');
+            
+            let output = '<h3>🔍 Checking Appointments Database</h3>';
+            output += `Looking for appointments for user: ${userId}<br>`;
+            output += `Email: ${userEmail}<br><br>`;
+            
+            document.getElementById('debug-output').innerHTML = output + 'Loading appointments...';
+            
+            const appointmentsRef = ref(db, 'appointments');
+            onValue(appointmentsRef, (snapshot) => {
+                if (snapshot.exists()) {
+                    const appointments = snapshot.val();
+                    const totalCount = Object.keys(appointments).length;
+                    
+                    output += `Total appointments in database: ${totalCount}<br><br>`;
+                    
+                    // Filter appointments for current user using our fix logic
+                    const userAppointments = Object.entries(appointments).filter(([_, appointment]) => {
+                        const matches = appointment.patientId === userId || 
+                                      appointment.userId === userId ||
+                                      appointment.userEmail === userEmail;
+                        return matches;
+                    });
+                    
+                    output += `<strong>Appointments found for this user: ${userAppointments.length}</strong><br><br>`;
+                    
+                    if (userAppointments.length > 0) {
+                        output += '<div class="success">✅ Appointments found!</div>';
+                        userAppointments.forEach(([id, appointment]) => {
+                            output += `<div class="code">
+                                ID: ${id}<br>
+                                Patient ID: ${appointment.patientId || 'null'}<br>
+                                User ID: ${appointment.userId || 'null'}<br>
+                                Email: ${appointment.userEmail || 'null'}<br>
+                                Name: ${appointment.userName || 'null'}<br>
+                                Doctor: ${appointment.doctorName || 'Not assigned'}<br>
+                                Status: ${appointment.status}<br>
+                                Date: ${appointment.date} ${appointment.time}
+                            </div><br>`;
+                        });
+                    } else {
+                        output += '<div class="error">❌ No appointments found for this user</div>';
+                        
+                        // Show some sample appointments to see what IDs exist
+                        output += '<br><strong>Sample appointments (to check user IDs):</strong><br>';
+                        Object.entries(appointments).slice(0, 5).forEach(([id, appointment]) => {
+                            output += `<div class="code">
+                                Sample ID: ${id}<br>
+                                Patient ID: ${appointment.patientId || 'null'}<br>
+                                User ID: ${appointment.userId || 'null'}<br>
+                                Email: ${appointment.userEmail || 'null'}<br>
+                                Name: ${appointment.userName || 'null'}
+                            </div><br>`;
+                        });
+                    }
+                } else {
+                    output += '<div class="error">❌ No appointments in database</div>';
+                }
+                
+                document.getElementById('debug-output').innerHTML = output;
+            }, (error) => {
+                output += `<div class="error">❌ Database error: ${error.message}</div>`;
+                document.getElementById('debug-output').innerHTML = output;
+            });
+        };
+
+        window.debugUserMatch = function() {
+            const userId = localStorage.getItem('userId') || localStorage.getItem('uid');
+            const userEmail = localStorage.getItem('userEmail');
+            
+            let output = '<h3>🎯 Testing User Matching Logic</h3>';
+            output += `Current user ID: ${userId}<br>`;
+            output += `Current email: ${userEmail}<br><br>`;
+            
+            // Test different scenarios
+            const testAppointments = [
+                { patientId: userId, scenario: 'Exact patientId match' },
+                { userId: userId, scenario: 'Exact userId match' },
+                { userEmail: userEmail, scenario: 'Email match' },
+                { patientId: 'guest_1748581011271_q5uwzno2t', scenario: 'Different guest ID' },
+                { userId: 'some_other_user', scenario: 'Different user' }
+            ];
+            
+            output += '<strong>Testing matching logic:</strong><br>';
+            testAppointments.forEach(testAppt => {
+                const matches = testAppt.patientId === userId || 
+                              testAppt.userId === userId ||
+                              testAppt.userEmail === userEmail;
+                
+                const result = matches ? '✅ MATCH' : '❌ NO MATCH';
+                output += `${result} - ${testAppt.scenario}<br>`;
+            });
+            
+            document.getElementById('debug-output').innerHTML = output;
+        };
+
+        window.simulateFix = function() {
+            // Let's create a test appointment with the current user's ID
+            const userId = localStorage.getItem('userId') || localStorage.getItem('uid');
+            const userEmail = localStorage.getItem('userEmail');
+            const userName = localStorage.getItem('userName');
+            
+            let output = '<h3>🛠️ Simulating Fix</h3>';
+            
+            if (!userId) {
+                output += '<div class="error">❌ Cannot simulate - no user ID in localStorage</div>';
+                document.getElementById('debug-output').innerHTML = output;
+                return;
+            }
+            
+            // Show what an appointment should look like for this user
+            const correctAppointment = {
+                patientId: userId,  // This is what our fix looks for
+                userId: userId,     // Legacy compatibility
+                userEmail: userEmail,
+                userName: userName,
+                doctorName: 'Dr. Test Doctor',
+                date: '2024-12-15',
+                time: '10:00 AM',
+                status: 'confirmed'
+            };
+            
+            output += '<div class="success">✅ Correct appointment format for this user:</div>';
+            output += `<div class="code">${JSON.stringify(correctAppointment, null, 2)}</div>`;
+            
+            output += '<br><strong>Fix verification:</strong><br>';
+            const wouldMatch = correctAppointment.patientId === userId || 
+                             correctAppointment.userId === userId;
+            
+            if (wouldMatch) {
+                output += '<div class="success">✅ This appointment WOULD be visible with our fix</div>';
+            } else {
+                output += '<div class="error">❌ This appointment would NOT be visible</div>';
+            }
+            
+            document.getElementById('debug-output').innerHTML = output;
+        };
+
+        // Auto-run localStorage check
+        window.onload = function() {
+            debugLocalStorage();
+        };
+    </script>
+</body>
+</html>
