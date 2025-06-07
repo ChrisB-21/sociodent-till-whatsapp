@@ -22,9 +22,34 @@ export interface AppointmentEmailData {
 export const sendAppointmentConfirmationEmail = async (data: AppointmentEmailData): Promise<boolean> => {
   try {
     const subject = 'Your Dental Appointment Confirmation';
-    const html = `<h1>Appointment Confirmed</h1>
-      <p>Dear ${data.patientName}, your appointment is confirmed for ${data.date} at ${data.time}.</p>
-      ${data.doctorName ? `<p>Your doctor: <b>${data.doctorName}</b></p>` : ''}`;
+    const html = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 5px;">
+        <div style="text-align: center; margin-bottom: 20px;">
+          <img src="https://sociodent-smile-database.web.app/logo.png" alt="SocioDent Logo" style="max-width: 150px;">
+        </div>
+        <h1 style="color: #4a90e2; text-align: center;">Appointment Confirmed</h1>
+        <p>Dear <strong>${data.patientName}</strong>,</p>
+        <p>Your dental appointment has been successfully scheduled!</p>
+        
+        <div style="background-color: #f5f5f5; padding: 15px; border-radius: 5px; margin: 20px 0;">
+          <h3 style="margin-top: 0; color: #4a90e2;">Appointment Details</h3>
+          <p><strong>Date:</strong> ${data.date}</p>
+          <p><strong>Time:</strong> ${data.time}</p>
+          <p><strong>Consultation Type:</strong> ${data.consultationType}</p>
+          ${data.doctorName ? `<p><strong>Doctor:</strong> ${data.doctorName}${data.doctorSpecialization ? ` (${data.doctorSpecialization})` : ''}</p>` : ''}
+          <p><strong>Payment Method:</strong> ${data.paymentMethod}</p>
+          <p><strong>Amount Paid:</strong> ₹${data.paymentAmount}</p>
+          <p><strong>Appointment ID:</strong> ${data.appointmentId}</p>
+        </div>
+        
+        <p>If you need to reschedule or cancel your appointment, please contact us at least 24 hours in advance.</p>
+        <p>Thank you for choosing SocioDent for your dental care!</p>
+        
+        <div style="text-align: center; margin-top: 30px; color: #888; font-size: 12px;">
+          <p>© ${new Date().getFullYear()} SocioDent. All rights reserved.</p>
+        </div>
+      </div>
+    `;
     const res = await fetch('http://localhost:3000/api/email/send', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -52,10 +77,31 @@ export const sendDoctorAssignmentEmail = async (data: AppointmentEmailData): Pro
     }
 
     const subject = 'Doctor Assigned to Your Dental Appointment';
-    const html = `<h1>Doctor Assigned</h1>
-      <p>Dear ${data.patientName}, a doctor has been assigned to your appointment.</p>
-      <p>Doctor: <b>${data.doctorName} ${data.doctorSpecialization ? `(${data.doctorSpecialization})` : ''}</b></p>
-      <p>Appointment ID: ${data.appointmentId}</p>`;
+    const html = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 5px;">
+        <div style="text-align: center; margin-bottom: 20px;">
+          <img src="https://sociodent-smile-database.web.app/logo.png" alt="SocioDent Logo" style="max-width: 150px;">
+        </div>
+        <h1 style="color: #4a90e2; text-align: center;">Doctor Assigned</h1>
+        <p>Dear <strong>${data.patientName}</strong>,</p>
+        <p>We're pleased to inform you that a doctor has been assigned to your upcoming dental appointment.</p>
+        
+        <div style="background-color: #f5f5f5; padding: 15px; border-radius: 5px; margin: 20px 0;">
+          <h3 style="margin-top: 0; color: #4a90e2;">Doctor Details</h3>
+          <p><strong>Doctor:</strong> ${data.doctorName}${data.doctorSpecialization ? ` (${data.doctorSpecialization})` : ''}</p>
+          <p><strong>Date:</strong> ${data.date}</p>
+          <p><strong>Time:</strong> ${data.time}</p>
+          <p><strong>Appointment ID:</strong> ${data.appointmentId}</p>
+        </div>
+        
+        <p>If you have any questions or need to update your appointment, please contact our support team.</p>
+        <p>We look forward to providing you with excellent dental care!</p>
+        
+        <div style="text-align: center; margin-top: 30px; color: #888; font-size: 12px;">
+          <p>© ${new Date().getFullYear()} SocioDent. All rights reserved.</p>
+        </div>
+      </div>
+    `;
     const res = await fetch('http://localhost:3000/api/email/send', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -83,17 +129,36 @@ export const sendPaymentReceiptEmail = async (data: AppointmentEmailData): Promi
     }
 
     const subject = 'SocioDent Payment Receipt';
-    const html = `<h1>Payment Receipt</h1>
-      <p>Dear ${data.patientName}, thank you for your payment. Here are the receipt details:</p>
-      <p>Payment ID: ${data.paymentId}</p>
-      <p>Amount Paid: ₹${data.paymentAmount}</p>
-      <p>Payment Method: ${data.paymentMethod}</p>
-      <p>Date of Payment: ${new Date().toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric'
-      })}</p>
-      <p>Appointment ID: ${data.appointmentId}</p>`;
+    const html = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 5px;">
+        <div style="text-align: center; margin-bottom: 20px;">
+          <img src="https://sociodent-smile-database.web.app/logo.png" alt="SocioDent Logo" style="max-width: 150px;">
+        </div>
+        <h1 style="color: #4a90e2; text-align: center;">Payment Receipt</h1>
+        <p>Dear <strong>${data.patientName}</strong>,</p>
+        <p>Thank you for your payment. Your transaction has been completed successfully.</p>
+        
+        <div style="background-color: #f5f5f5; padding: 15px; border-radius: 5px; margin: 20px 0;">
+          <h3 style="margin-top: 0; color: #4a90e2;">Payment Details</h3>
+          <p><strong>Payment ID:</strong> ${data.paymentId}</p>
+          <p><strong>Amount Paid:</strong> ₹${data.paymentAmount}</p>
+          <p><strong>Payment Method:</strong> ${data.paymentMethod}</p>
+          <p><strong>Date of Payment:</strong> ${new Date().toLocaleDateString('en-US', {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric'
+          })}</p>
+          <p><strong>Appointment ID:</strong> ${data.appointmentId}</p>
+        </div>
+        
+        <p>This receipt serves as proof of payment for your dental appointment. Please keep it for your records.</p>
+        <p>If you have any questions regarding your payment, please contact our billing department.</p>
+        
+        <div style="text-align: center; margin-top: 30px; color: #888; font-size: 12px;">
+          <p>© ${new Date().getFullYear()} SocioDent. All rights reserved.</p>
+        </div>
+      </div>
+    `;
     const res = await fetch('http://localhost:3000/api/email/send', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
