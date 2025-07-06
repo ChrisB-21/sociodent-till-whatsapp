@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import StepCategory from "@/pages/onboarding/StepCategory";
 import StepDisability from "@/pages/onboarding/StepDisability";
@@ -6,11 +6,23 @@ import StepMedical from "@/pages/onboarding/StepMedical";
 import StepPreferences from "@/pages/onboarding/StepPreferences";
 import StepConsent from "@/pages/onboarding/StepConsent";
 import StepOptional from "@/pages/onboarding/StepOptional";
-import { FaUser, FaUserMd } from "react-icons/fa";
+import { FaUser, FaUserMd, FaSyncAlt, FaBuilding } from "react-icons/fa";
 import { auth, db } from "@/firebase";
-import { createUserWithEmailAndPassword } from "firebase/auth";
-import { ref, set } from "firebase/database";
+import { createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail, deleteUser, signOut } from "firebase/auth";
+import { ref, set, get, push, onValue } from "firebase/database";
 import { CheckCircle } from "lucide-react";
+import { sendNewDoctorRegistrationNotification, sendUserRegistrationSuccessEmail, sendNewUserRegistrationNotificationToAdmin, sendOrganizationBookingNotification, sendOrganizationBookingConfirmation } from "../../services/emailService";
+import EmailOTPVerification from "@/components/EmailOTPVerification";
+import AudioCaptcha from "@/components/AudioCaptcha";
+import WhatsAppWelcomeService from "@/services/whatsappWelcomeService";
+
+// Generate CAPTCHA function
+const generateCaptcha = () => {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  return Array.from({ length: 6 }, () =>
+    chars[Math.floor(Math.random() * chars.length)]
+  ).join("");
+};
 
 async function handleFileUpload(file: File, user: { id: string, name: string, email: string }, fileType = 'document') {
   // In a real implementation, you would upload to your preferred storage service
@@ -91,7 +103,18 @@ const initialData = {
   specialization: "",
   password: "",
   confirmPassword: "",
-  phoneVerified: false
+  phoneVerified: false,
+  // Organization specific fields
+  organizationName: "",
+  designation: "",
+  requirement: "",
+  organizationPhone: "",
+  organizationEmail: "",
+  organizationType: "",
+  numberOfBeneficiaries: "",
+  preferredDate: "",
+  preferredTime: "",
+  additionalNotes: ""
 };
 
 const userSteps = [
@@ -104,6 +127,7 @@ const userSteps = [
   "Optional"
 ];
 const doctorSteps = ["Credentials"];
+const organizationSteps = ["OrganizationInfo"];
 
 const tabClasses = (active: boolean) =>
   `flex-1 py-3 font-semibold text-base transition-colors duration-150 flex items-center justify-center gap-2 ${
@@ -181,12 +205,75 @@ const UserRegistrationSuccess = ({ fullName, onClose }: { fullName: string, onCl
   );
 };
 
+const OrganizationRegistrationSuccess = ({ organizationName, onClose }: { organizationName: string, onClose: () => void }) => {
+  return (
+    <div className={overlayClasses}>
+      <div className="bg-white rounded-2xl shadow-lg p-8 max-w-lg w-full text-center relative">
+        <div className="flex justify-center mb-4">
+          <CheckCircle className="h-16 w-16 text-green-500" />
+        </div>
+        <h2 className="text-2xl font-bold mb-3 text-gray-800">
+          🎉 Request Submitted Successfully!
+        </h2>
+        <p className="mb-4 text-lg text-gray-700">
+          Thank you <span className="font-semibold text-[#1669AE]">{organizationName}</span>!
+        </p>
+        
+        <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-4">
+          <p className="text-green-800 text-sm mb-2">
+            <strong>✅ What we've done:</strong>
+          </p>
+          <ul className="text-green-700 text-sm text-left space-y-1">
+            <li>• Your group booking request has been received</li>
+            <li>• Admin notification has been sent</li>
+            <li>• Confirmation email sent to your registered email</li>
+          </ul>
+        </div>
+        
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+          <p className="text-blue-800 text-sm mb-2">
+            <strong>⏰ What happens next:</strong>
+          </p>
+          <ul className="text-blue-700 text-sm text-left space-y-1">
+            <li>• Our team will review your request</li>
+            <li>• We'll contact you within <strong>24-48 hours</strong></li>
+            <li>• We'll coordinate the best appointment schedule</li>
+            <li>• Group dental care will be arranged at your location</li>
+          </ul>
+        </div>
+        
+        <p className="mb-4 text-gray-600 text-sm">
+          For any immediate queries, please contact us at <strong>steward@sociodent.in</strong>
+        </p>
+        
+        <button
+          className={nextButtonClasses}
+          onClick={onClose}
+        >
+          Go to Home
+        </button>
+      </div>
+    </div>
+  );
+};
+
 const renderUserBasicInfo = (
   formData: typeof initialData,
   updateFormData: (data: Partial<typeof initialData>) => void,
   nextStep: () => void,
   errors: Record<string, string>,
-  setErrors: (errors: Record<string, string>) => void
+  setErrors: (errors: Record<string, string>) => void,
+  emailVerified: boolean,
+  setEmailVerified: (verified: boolean) => void,
+  otpError: string,
+  setOtpError: (error: string) => void,
+  captcha: string,
+  captchaInput: string,
+  captchaVerified: boolean,
+  setCaptchaInput: (input: string) => void,
+  setCaptchaVerified: (verified: boolean) => void,
+  handleCaptchaRefresh: () => void,
+  handleCaptchaVerify: () => void
 ) => {
   const validate = () => {
     const newErrors: Record<string, string> = {};
@@ -197,6 +284,8 @@ const renderUserBasicInfo = (
       newErrors.phone = "10-digit phone required";
     if (!formData.email || !isEmailValid(formData.email))
       newErrors.email = "Valid email required";
+    if (!emailVerified) newErrors.email = "Please verify your email address";
+    if (!captchaVerified) newErrors.captcha = "Please verify CAPTCHA";
     if (!formData.password || !isPasswordValid(formData.password))
       newErrors.password =
         "Min 6 chars, 1 number or special character required";
@@ -289,10 +378,38 @@ const renderUserBasicInfo = (
           className={inputClasses}
           placeholder="Email"
           value={formData.email}
-          onChange={(e) => updateFormData({ email: e.target.value })}
+          onChange={(e) => {
+            updateFormData({ email: e.target.value });
+            // Reset email verification when email changes
+            if (emailVerified) {
+              setEmailVerified(false);
+            }
+            setOtpError("");
+          }}
         />
         {errors.email && <div className={errorClasses}>{errors.email}</div>}
       </div>
+
+      {/* Email OTP Verification */}
+      {formData.email && isEmailValid(formData.email) && (
+        <EmailOTPVerification
+          email={formData.email}
+          onVerified={() => {
+            setEmailVerified(true);
+            setOtpError("");
+            // Remove email error if it exists
+            const newErrors = { ...errors };
+            delete newErrors.email;
+            setErrors(newErrors);
+          }}
+          onError={(error) => {
+            setOtpError(error);
+            setEmailVerified(false);
+          }}
+        />
+      )}
+      
+      {otpError && <div className={errorClasses}>{otpError}</div>}
       
       <div className="mb-4">
         <label className={labelClasses}>Password</label>
@@ -384,8 +501,388 @@ const renderUserBasicInfo = (
         {errors.pincode && <div className={errorClasses}>{errors.pincode}</div>}
       </div>
       
+      {/* CAPTCHA Section */}
+      <div className="mb-4">
+        <label className={labelClasses}>Security Verification</label>
+        <div className="mb-3">
+        {/* Audio CAPTCHA for accessibility */}
+        <AudioCaptcha captchaText={captcha} className="mb-3" />
+        
+        {/* Visual CAPTCHA */}
+        <div className="flex items-center justify-between bg-gray-100 p-3 rounded-lg mb-3">
+          <div className="flex items-center">
+            <span>{captcha}</span>
+            <button
+              type="button"
+              onClick={handleCaptchaRefresh}
+              title="Refresh Captcha"
+              className="ml-2 p-1 text-gray-600 hover:text-gray-800"
+            >
+              <FaSyncAlt />
+            </button>
+          </div>
+        </div>
+        
+        <input
+          type="text"
+          className={inputClasses}
+          placeholder="Enter CAPTCHA"
+          value={captchaInput}
+          onChange={(e) => {
+            setCaptchaInput(e.target.value);
+            setCaptchaVerified(false);
+          }}
+          onBlur={handleCaptchaVerify}
+        />
+        {errors.captcha && <div className={errorClasses}>{errors.captcha}</div>}
+        </div>
+      </div>
+      
       <button type="submit" className={nextButtonClasses}>
         Next
+      </button>
+    </form>
+  );
+};
+
+const renderOrganizationInfo = (
+  formData: typeof initialData,
+  updateFormData: (data: Partial<typeof initialData>) => void,
+  handleSubmit: () => void,
+  errors: Record<string, string>,
+  setErrors: (errors: Record<string, string>) => void,
+  emailVerified: boolean,
+  setEmailVerified: (verified: boolean) => void,
+  otpError: string,
+  setOtpError: (error: string) => void,
+  captcha: string,
+  captchaInput: string,
+  captchaVerified: boolean,
+  setCaptchaInput: (input: string) => void,
+  setCaptchaVerified: (verified: boolean) => void,
+  handleCaptchaRefresh: () => void,
+  handleCaptchaVerify: () => void,
+  bookedDates: Set<string>,
+  setError: (error: string) => void
+) => {
+  const validate = () => {
+    const newErrors: Record<string, string> = {};
+    if (!formData.fullName) newErrors.fullName = "Contact Person Name required";
+    if (!formData.organizationName) newErrors.organizationName = "Organization Name required";
+    if (!formData.designation) newErrors.designation = "Designation required";
+    if (!formData.requirement) newErrors.requirement = "Requirement details required";
+    if (!formData.organizationPhone || !isPhoneValid(formData.organizationPhone))
+      newErrors.organizationPhone = "Valid 10-digit phone number required";
+    if (!formData.organizationEmail || !isEmailValid(formData.organizationEmail))
+      newErrors.organizationEmail = "Valid email required";
+    if (!emailVerified) newErrors.organizationEmail = "Please verify your email address";
+    if (!captchaVerified) newErrors.captcha = "Please verify CAPTCHA";
+    if (!formData.organizationType) newErrors.organizationType = "Organization type required";
+    if (!formData.numberOfBeneficiaries) newErrors.numberOfBeneficiaries = "Number of beneficiaries required";
+    if (!formData.state) newErrors.state = "State required";
+    if (!formData.city) newErrors.city = "City required";
+    
+    // Check if preferred date is already booked
+    if (formData.preferredDate && bookedDates.has(formData.preferredDate)) {
+      newErrors.preferredDate = "This date is already booked. Please select a different date.";
+    }
+    
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const organizationTypes = [
+    "NGO - Elderly Care",
+    "NGO - Disability Services",
+    "Government Institution",
+    "Old Age Home",
+    "Rehabilitation Center",
+    "Community Center",
+    "Educational Institution",
+    "Healthcare Facility",
+    "Other"
+  ];
+
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (validate()) handleSubmit();
+      }}
+    >
+      <div className="mb-2 text-center text-2xl font-bold text-gray-800">Organization Booking</div>
+      <div className="mb-6 text-center text-gray-500 text-base">
+        Group dental appointment for elderly or persons with disabilities
+      </div>
+      
+      <div className="mb-4">
+        <label className={labelClasses}>Contact Person Name *</label>
+        <input
+          type="text"
+          className={inputClasses}
+          placeholder="Full Name"
+          value={formData.fullName}
+          onChange={(e) => updateFormData({ fullName: e.target.value })}
+        />
+        {errors.fullName && <div className={errorClasses}>{errors.fullName}</div>}
+      </div>
+      
+      <div className="mb-4">
+        <label className={labelClasses}>Organization Name *</label>
+        <input
+          type="text"
+          className={inputClasses}
+          placeholder="Organization/Institution Name"
+          value={formData.organizationName}
+          onChange={(e) => updateFormData({ organizationName: e.target.value })}
+        />
+        {errors.organizationName && <div className={errorClasses}>{errors.organizationName}</div>}
+      </div>
+      
+      <div className="mb-4">
+        <label className={labelClasses}>Organization Type *</label>
+        <select
+          className={inputClasses}
+          value={formData.organizationType}
+          onChange={(e) => updateFormData({ organizationType: e.target.value })}
+        >
+          <option value="">Select Organization Type</option>
+          {organizationTypes.map((type) => (
+            <option key={type} value={type}>
+              {type}
+            </option>
+          ))}
+        </select>
+        {errors.organizationType && <div className={errorClasses}>{errors.organizationType}</div>}
+      </div>
+      
+      <div className="mb-4">
+        <label className={labelClasses}>Your Designation *</label>
+        <input
+          type="text"
+          className={inputClasses}
+          placeholder="e.g., Manager, Coordinator, Director"
+          value={formData.designation}
+          onChange={(e) => updateFormData({ designation: e.target.value })}
+        />
+        {errors.designation && <div className={errorClasses}>{errors.designation}</div>}
+      </div>
+      
+      <div className="mb-4">
+        <label className={labelClasses}>Contact Phone *</label>
+        <input
+          type="tel"
+          className={inputClasses}
+          placeholder="10-digit mobile number"
+          value={formData.organizationPhone}
+          maxLength={10}
+          onChange={(e) => updateFormData({ organizationPhone: e.target.value })}
+        />
+        {errors.organizationPhone && <div className={errorClasses}>{errors.organizationPhone}</div>}
+      </div>
+      
+      <div className="mb-4">
+        <label className={labelClasses}>Contact Email *</label>
+        <input
+          type="email"
+          className={inputClasses}
+          placeholder="Email"
+          value={formData.organizationEmail}
+          onChange={(e) => {
+            updateFormData({ organizationEmail: e.target.value });
+            // Reset email verification when email changes
+            if (emailVerified) {
+              setEmailVerified(false);
+            }
+            setOtpError("");
+          }}
+        />
+        {errors.organizationEmail && <div className={errorClasses}>{errors.organizationEmail}</div>}
+      </div>
+
+      {/* Email OTP Verification */}
+      {formData.organizationEmail && isEmailValid(formData.organizationEmail) && (
+        <EmailOTPVerification
+          email={formData.organizationEmail}
+          onVerified={() => {
+            setEmailVerified(true);
+            setOtpError("");
+            // Remove email error if it exists
+            const newErrors = { ...errors };
+            delete newErrors.organizationEmail;
+            setErrors(newErrors);
+          }}
+          onError={(error) => {
+            setOtpError(error);
+            setEmailVerified(false);
+          }}
+        />
+      )}
+      
+      {otpError && <div className={errorClasses}>{otpError}</div>}
+      
+      <div className="mb-4">
+        <label className={labelClasses}>State *</label>
+        <select
+          className={inputClasses}
+          value={formData.state}
+          onChange={(e) => {
+            updateFormData({ state: e.target.value, city: "" });
+          }}
+        >
+          <option value="">Select State</option>
+          {STATES.map((state) => (
+            <option key={state} value={state}>
+              {state}
+            </option>
+          ))}
+        </select>
+        {errors.state && <div className={errorClasses}>{errors.state}</div>}
+      </div>
+      
+      <div className="mb-4">
+        <label className={labelClasses}>City *</label>
+        <select
+          className={inputClasses}
+          value={formData.city}
+          onChange={(e) => updateFormData({ city: e.target.value })}
+          disabled={!formData.state}
+        >
+          <option value="">Select City</option>
+          {formData.state &&
+            STATES_WITH_CITIES[formData.state]?.map((city) => (
+              <option key={city} value={city}>
+                {city}
+              </option>
+            ))}
+        </select>
+        {errors.city && <div className={errorClasses}>{errors.city}</div>}
+      </div>
+      
+      <div className="mb-4">
+        <label className={labelClasses}>Number of Beneficiaries *</label>
+        <input
+          type="number"
+          className={inputClasses}
+          placeholder="How many people need dental care?"
+          value={formData.numberOfBeneficiaries}
+          min="1"
+          onChange={(e) => updateFormData({ numberOfBeneficiaries: e.target.value })}
+        />
+        {errors.numberOfBeneficiaries && <div className={errorClasses}>{errors.numberOfBeneficiaries}</div>}
+      </div>
+      
+      <div className="mb-4">
+        <label className={labelClasses}>Preferred Date</label>
+        <input
+          type="date"
+          className={`${inputClasses} ${
+            formData.preferredDate && bookedDates.has(formData.preferredDate) 
+              ? 'border-red-500 bg-red-50' 
+              : ''
+          }`}
+          value={formData.preferredDate}
+          min={new Date().toISOString().split('T')[0]}
+          onChange={(e) => {
+            const selectedDate = e.target.value;
+            updateFormData({ preferredDate: selectedDate });
+            
+            // Clear any previous error if date is available
+            if (selectedDate && !bookedDates.has(selectedDate)) {
+              setError("");
+            }
+          }}
+        />
+        {formData.preferredDate && bookedDates.has(formData.preferredDate) && (
+          <div className="text-red-600 text-sm mt-1 mb-2">
+            ⚠️ This date is already booked by another organization. Please select a different date.
+          </div>
+        )}
+        {bookedDates.size > 0 && (
+          <div className="text-gray-600 text-sm mt-1">
+            <strong>Note:</strong> The following dates are already booked: {Array.from(bookedDates).sort().join(', ')}
+          </div>
+        )}
+        {errors.preferredDate && <div className={errorClasses}>{errors.preferredDate}</div>}
+      </div>
+      
+      <div className="mb-4">
+        <label className={labelClasses}>Preferred Time</label>
+        <select
+          className={inputClasses}
+          value={formData.preferredTime}
+          onChange={(e) => updateFormData({ preferredTime: e.target.value })}
+        >
+          <option value="">Select preferred time</option>
+          <option value="morning">Morning (9 AM - 12 PM)</option>
+          <option value="afternoon">Afternoon (12 PM - 4 PM)</option>
+          <option value="evening">Evening (4 PM - 7 PM)</option>
+          <option value="flexible">Flexible</option>
+        </select>
+      </div>
+      
+      <div className="mb-4">
+        <label className={labelClasses}>Requirement Details *</label>
+        <textarea
+          className={inputClasses}
+          placeholder="Please describe your dental care requirements, special needs, accessibility requirements, etc."
+          value={formData.requirement}
+          rows={4}
+          onChange={(e) => updateFormData({ requirement: e.target.value })}
+        />
+        {errors.requirement && <div className={errorClasses}>{errors.requirement}</div>}
+      </div>
+      
+      <div className="mb-4">
+        <label className={labelClasses}>Additional Notes</label>
+        <textarea
+          className={inputClasses}
+          placeholder="Any additional information that would help us serve you better"
+          value={formData.additionalNotes}
+          rows={3}
+          onChange={(e) => updateFormData({ additionalNotes: e.target.value })}
+        />
+      </div>
+
+      {/* CAPTCHA Section */}
+      <div className="mb-4">
+        <label className={labelClasses}>Security Verification</label>
+        <div className="mb-3">
+        {/* Audio CAPTCHA for accessibility */}
+        <AudioCaptcha captchaText={captcha} className="mb-3" />
+        
+        {/* Visual CAPTCHA */}
+        <div className="flex items-center justify-between bg-gray-100 p-3 rounded-lg mb-3">
+          <div className="flex items-center">
+            <span>{captcha}</span>
+            <button
+              type="button"
+              onClick={handleCaptchaRefresh}
+              title="Refresh Captcha"
+              className="ml-2 p-1 text-gray-600 hover:text-gray-800"
+            >
+              <FaSyncAlt />
+            </button>
+          </div>
+        </div>
+        
+        <input
+          type="text"
+          className={inputClasses}
+          placeholder="Enter CAPTCHA"
+          value={captchaInput}
+          onChange={(e) => {
+            setCaptchaInput(e.target.value);
+            setCaptchaVerified(false);
+          }}
+          onBlur={handleCaptchaVerify}
+        />
+        {errors.captcha && <div className={errorClasses}>{errors.captcha}</div>}
+        </div>
+      </div>
+      
+      <button type="submit" className={finishButtonClasses}>
+        Submit Request
       </button>
     </form>
   );
@@ -396,13 +893,25 @@ const renderDoctorCredentials = (
   updateFormData: (data: Partial<typeof initialData>) => void,
   handleSubmit: () => void,
   errors: Record<string, string>,
-  setErrors: (errors: Record<string, string>) => void
+  setErrors: (errors: Record<string, string>) => void,
+  emailVerified: boolean,
+  setEmailVerified: (verified: boolean) => void,
+  otpError: string,
+  setOtpError: (error: string) => void,
+  captcha: string,
+  captchaInput: string,
+  captchaVerified: boolean,
+  setCaptchaInput: (input: string) => void,
+  setCaptchaVerified: (verified: boolean) => void,
+  handleCaptchaRefresh: () => void,
+  handleCaptchaVerify: () => void
 ) => {
   const validate = () => {
     const newErrors: Record<string, string> = {};
     if (!formData.fullName) newErrors.fullName = "Full Name required";
     if (!formData.email || !isEmailValid(formData.email))
       newErrors.email = "Valid email required";
+    if (!emailVerified) newErrors.email = "Please verify your email address";
     if (!formData.password || !isPasswordValid(formData.password))
       newErrors.password =
         "Min 6 chars, 1 number or special character required";
@@ -418,7 +927,7 @@ const renderDoctorCredentials = (
     if (!formData.age) newErrors.age = "Age required";
     if (!formData.gender) newErrors.gender = "Gender required";
     if (!formData.state) newErrors.state = "State required";
-    if (!formData.city) newErrors.city = "City required";
+   
     if (!formData.area) newErrors.area = "Area required";
     if (!formData.pincode) newErrors.pincode = "Pincode required";
     
@@ -457,10 +966,37 @@ const renderDoctorCredentials = (
           className={inputClasses}
           placeholder="Email"
           value={formData.email}
-          onChange={(e) => updateFormData({ email: e.target.value })}
+          onChange={(e) => {
+            updateFormData({ email: e.target.value });
+            // Reset email verification when email changes
+            if (emailVerified) {
+              setEmailVerified(false);
+            }
+          }}
         />
         {errors.email && <div className={errorClasses}>{errors.email}</div>}
       </div>
+
+      {/* Email OTP Verification for Doctor */}
+      {formData.email && isEmailValid(formData.email) && (
+        <EmailOTPVerification
+          email={formData.email}
+          onVerified={() => {
+            setEmailVerified(true);
+            setOtpError("");
+            // Remove email error if it exists
+            const newErrors = { ...errors };
+            delete newErrors.email;
+            setErrors(newErrors);
+          }}
+          onError={(error) => {
+            setOtpError(error);
+            setEmailVerified(false);
+          }}
+        />
+      )}
+
+      {otpError && <div className={errorClasses}>{otpError}</div>}
       
       <div className="mb-4">
         <label className={labelClasses}>Password</label>
@@ -627,18 +1163,83 @@ const renderDoctorCredentials = (
         {errors.pincode && <div className={errorClasses}>{errors.pincode}</div>}
       </div>
       
+      {/* CAPTCHA Section */}
+      <div className="mb-4 bg-gray-50 border rounded-md p-3">
+        <label className="block text-gray-700 mb-1 text-sm font-medium">
+          Verify you're human
+        </label>
+        
+        {/* Audio CAPTCHA for accessibility */}
+        <AudioCaptcha captchaText={captcha} className="mb-3" />
+        
+        <div className="flex items-center mb-2">
+          <div className="flex-1 flex items-center justify-between px-3 py-2 bg-white border rounded font-mono tracking-widest text-lg select-none">
+            <span>{captcha}</span>
+            <span
+              className="ml-2 text-[#1669AE] cursor-pointer"
+              onClick={handleCaptchaRefresh}
+              title="Refresh Captcha"
+            >
+              <FaSyncAlt />
+            </span>
+          </div>
+        </div>
+        <div className="flex items-center">
+          <input
+            type="text"
+            className="flex-1 px-3 py-2 border rounded-l focus:ring-2 focus:ring-[#1669AE]"
+            placeholder="Enter the code above"
+            value={captchaInput}
+            onChange={(e) => {
+              setCaptchaInput(e.target.value);
+              setCaptchaVerified(false);
+            }}
+            required
+          />
+          <button
+            type="button"
+            className={`px-4 py-2 rounded-r ${
+              captchaVerified ? "bg-green-500" : "bg-[#1669AE]"
+            } text-white`}
+            onClick={handleCaptchaVerify}
+            disabled={captchaVerified}
+          >
+            {captchaVerified ? "Verified" : "Verify"}
+          </button>
+        </div>
+        {errors.captcha && <div className={errorClasses}>{errors.captcha}</div>}
+      </div>
+      
+      <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+        <div className="flex items-start">
+          <div className="flex-shrink-0">
+            <svg className="h-5 w-5 text-blue-400" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+            </svg>
+          </div>
+          <div className="ml-3">
+            <h3 className="text-sm font-medium text-blue-800">
+              Verification Required
+            </h3>
+            <div className="mt-2 text-sm text-blue-700">
+              <p>After submitting this form, you'll need to verify both your email address and phone number before your application is submitted for admin review.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+      
       <button 
         type="submit" 
         className={nextButtonClasses}
       >
-        Register
+        Register as Doctor
       </button>
     </form>
   );
 };
 
 const Onboarding: React.FC = () => {
-  const [role, setRole] = useState<"user" | "doctor">("user");
+  const [role, setRole] = useState<"user" | "doctor" | "organization">("user");
   const [step, setStep] = useState(0);
   const [formData, setFormData] = useState(initialData);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -646,142 +1247,418 @@ const Onboarding: React.FC = () => {
   const [error, setError] = useState("");
   const [registrationSuccess, setRegistrationSuccess] = useState(false);
   const [showUserSuccess, setShowUserSuccess] = useState(false);
+  const [showOrganizationSuccess, setShowOrganizationSuccess] = useState(false);
+  const [emailVerified, setEmailVerified] = useState(false);
+  const [otpError, setOtpError] = useState("");
+  const [captcha, setCaptcha] = useState(generateCaptcha());
+  const [captchaInput, setCaptchaInput] = useState("");
+  const [captchaVerified, setCaptchaVerified] = useState(false);
+  const [bookedDates, setBookedDates] = useState<Set<string>>(new Set());
   const navigate = useNavigate();
+
+  // Fetch booked dates from Firebase to prevent double bookings
+  useEffect(() => {
+    const organizationBookingsRef = ref(db, 'organizationBookings');
+    
+    const unsubscribe = onValue(organizationBookingsRef, (snapshot) => {
+      const data = snapshot.val();
+      const bookedDatesSet = new Set<string>();
+      
+      if (data) {
+        Object.values(data).forEach((booking: any) => {
+          if (booking.preferredDate && booking.status !== 'cancelled') {
+            bookedDatesSet.add(booking.preferredDate);
+          }
+        });
+      }
+      
+      setBookedDates(bookedDatesSet);
+    });
+
+    return () => unsubscribe();
+  }, []);
 
   const updateFormData = (data: Partial<typeof initialData>) => {
     setFormData((prev) => ({ ...prev, ...data }));
   };
 
+  const handleCaptchaRefresh = () => {
+    setCaptcha(generateCaptcha());
+    setCaptchaInput("");
+    setCaptchaVerified(false);
+  };
+
+  const handleCaptchaVerify = () => {
+    const isVerified = captchaInput.trim() === captcha.trim();
+    setCaptchaVerified(isVerified);
+    if (!isVerified) {
+      setError("CAPTCHA verification failed. Please try again.");
+    } else {
+      setError("");
+    }
+  };
+
+  const handleDoctorFormSubmit = () => {
+    // Validate doctor form first
+    const newErrors: Record<string, string> = {};
+    if (!formData.fullName) newErrors.fullName = "Full Name required";
+    if (!formData.email || !isEmailValid(formData.email))
+      newErrors.email = "Valid email required";
+    if (!emailVerified) newErrors.email = "Please verify your email address";
+    if (!captchaVerified) newErrors.captcha = "Please verify CAPTCHA";
+    if (!formData.password || !isPasswordValid(formData.password))
+      newErrors.password = "Min 6 chars, 1 number or special character required";
+    if (!formData.confirmPassword) 
+      newErrors.confirmPassword = "Confirm Password required";
+    if (formData.password !== formData.confirmPassword)
+      newErrors.confirmPassword = "Passwords do not match";
+    if (!formData.licenseNumber) newErrors.licenseNumber = "License required";
+    if (!formData.specialization) newErrors.specialization = "Specialization required";
+    if (!formData.phone || !isPhoneValid(formData.phone))
+      newErrors.phone = "10-digit phone required";
+    if (!formData.age) newErrors.age = "Age required";
+    if (!formData.gender) newErrors.gender = "Gender required";
+    if (!formData.state) newErrors.state = "State required";
+    if (!formData.city) newErrors.city = "City required";
+    if (!formData.area) newErrors.area = "Area required";
+    if (!formData.pincode) newErrors.pincode = "Pincode required";
+    
+    setErrors(newErrors);
+    
+    if (Object.keys(newErrors).length === 0) {
+      // Form is valid, proceed with registration
+      handleSubmit();
+    }
+  };
+
   const handleSubmit = async () => {
     setIsSubmitting(true);
-    setError("");
-    
     try {
-      // Create Auth account
-      const userCredential = await createUserWithEmailAndPassword(
-        auth,
-        formData.email,
-        formData.password
-      );
-      
-      // Data for database
-      const userData: any = {
-        uid: userCredential.user.uid,
-        fullName: formData.fullName,
-        email: formData.email,
-        phone: formData.phone,
-        phoneVerified: false,
-        role,
-        registeredAt: new Date().toISOString(),
-        state: formData.state,
-        city: formData.city,
-        area: formData.area,
-        pincode: formData.pincode,
-        address: {
-          city: formData.city,
-          state: formData.state,
-          pincode: formData.pincode,
-          area: formData.area,
-        },
-        age: formData.age,
-        gender: formData.gender,
-        createdAt: Date.now(),
-        updatedAt: Date.now()
-      };
-
-      // Specific fields based on role
-      if (role === "doctor") {
-        userData.licenseNumber = formData.licenseNumber;
-        userData.specialization = formData.specialization;
-        userData.status = "pending"; // Admin must approve doctors
-      } else {
-        userData.category = formData.category;
-        userData.disabilityType = formData.disabilityType;
-        userData.medicalConditions = formData.medicalConditions;
-        userData.modeOfCare = formData.modeOfCare;
-        userData.status = "active"; // Users are active immediately
-        
-        // Handle file uploads if present
-        if (formData.prescriptions) {
-          try {
-            const result = await handleFileUpload(formData.prescriptions, {
-              id: userCredential.user.uid,
-              name: formData.fullName,
-              email: formData.email
-            }, 'prescription');
-            userData.prescriptionsUrl = result.publicUrl;
-            userData.prescriptionPath = result.filePath;
-            userData.prescriptionBucket = result.bucketName;
-          } catch (uploadError) {
-            console.error("Failed to upload prescriptions:", uploadError);
-          }
-        }
-
-        if (formData.xrays) {
-          try {
-            const result = await handleFileUpload(formData.xrays, {
-              id: userCredential.user.uid,
-              name: formData.fullName,
-              email: formData.email
-            }, 'xray');
-            userData.xraysUrl = result.publicUrl;
-            userData.xraysPath = result.filePath;
-            userData.xraysBucket = result.bucketName;
-          } catch (uploadError) {
-            console.error("Failed to upload x-rays:", uploadError);
-          }
-        }
-
-        if (formData.profilePhoto) {
-          try {
-            const result = await handleFileUpload(formData.profilePhoto, {
-              id: userCredential.user.uid,
-              name: formData.fullName,
-              email: formData.email
-            }, 'profilePhoto');
-            userData.profilePhotoUrl = result.publicUrl;
-            userData.profilePhotoPath = result.filePath;
-            userData.profilePhotoBucket = result.bucketName;
-          } catch (uploadError) {
-            console.error("Failed to upload profile photo:", uploadError);
-          }
-        }
-      }
-
-      // Save to database
-      await set(ref(db, `users/${userCredential.user.uid}`), userData);
-
-      if (role === "doctor") {
-        setRegistrationSuccess(true);
-      } else {
-        // Update auth state for users
-        localStorage.setItem("isAuthenticated", "true");
-        localStorage.setItem("userRole", role);
-        localStorage.setItem("userName", formData.fullName);
-        localStorage.setItem("uid", userCredential.user.uid);
-        window.dispatchEvent(new Event("authChange"));
-        setShowUserSuccess(true);
-      }
+      // Handle user registration
+      const userCredential = await createUserWithEmailAndPassword(auth, formData.email, formData.password);
+      await continueWithRegistration(userCredential);
     } catch (error: any) {
+      console.error('User registration error:', error);
       setError(`Registration failed: ${error.message}`);
-      console.error(error);
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  if (registrationSuccess) {
-    return <DoctorRegistrationSuccess />;
-  }
+  const handleOrganizationFormSubmit = async () => {
+    setIsSubmitting(true);
+    setError("");
+    
+    try {
+      // Check if the selected date is already booked
+      if (formData.preferredDate && bookedDates.has(formData.preferredDate)) {
+        setError("The selected date is already booked by another organization. Please choose a different date.");
+        setIsSubmitting(false);
+        return;
+      }
 
-  if (showUserSuccess) {
-    return (
-      <UserRegistrationSuccess 
-        fullName={formData.fullName} 
-        onClose={() => navigate("/")} 
-      />
-    );
-  }
+      // Create organization booking data
+      const organizationData = {
+        type: 'organization_booking',
+        contactPersonName: formData.fullName,
+        organizationName: formData.organizationName,
+        organizationType: formData.organizationType,
+        designation: formData.designation,
+        contactPhone: formData.organizationPhone,
+        contactEmail: formData.organizationEmail,
+        state: formData.state,
+        city: formData.city,
+        numberOfBeneficiaries: formData.numberOfBeneficiaries,
+        preferredDate: formData.preferredDate,
+        preferredTime: formData.preferredTime,
+        requirement: formData.requirement,
+        additionalNotes: formData.additionalNotes,
+        submittedAt: new Date().toISOString(),
+        status: 'pending'
+      };
+
+      // Save to Firebase database
+      const organizationBookingsRef = ref(db, 'organizationBookings');
+      const newBookingRef = push(organizationBookingsRef);
+      await set(newBookingRef, {
+        ...organizationData,
+        id: newBookingRef.key,
+        createdAt: Date.now(),
+        updatedAt: Date.now()
+      });
+      console.log('Organization booking saved to Firebase with ID:', newBookingRef.key);
+
+      // Send email notifications
+      try {
+        // Send notification to admin about organization booking
+        await sendOrganizationBookingNotification(organizationData);
+        console.log('Admin notification sent for organization booking');
+        
+        // Send confirmation email to the organization
+        await sendOrganizationBookingConfirmation(organizationData);
+        console.log('Confirmation email sent to organization');
+      } catch (emailError) {
+        console.error('Failed to send email notifications:', emailError);
+        // Don't fail the submission if email fails, just log it
+      }
+      
+      // Show success message
+      setShowOrganizationSuccess(true);
+      
+    } catch (error: any) {
+      console.error('Organization booking submission error:', error);
+      setError('Failed to submit organization booking request. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Function to handle password reset for existing emails
+  const handlePasswordReset = async (email: string) => {
+    try {
+      await sendPasswordResetEmail(auth, email);
+      setError(`Password reset email sent to ${email}. Please check your inbox and follow the instructions to reset your password. After resetting, you can sign in with your new password.`);
+    } catch (resetError: any) {
+      console.error('Password reset error:', resetError);
+      setError(`Failed to send password reset email: ${resetError.message}`);
+    }
+  };
+
+  // Helper function to continue with registration after auth account is created
+  const continueWithRegistration = async (userCredential: any) => {
+    // Data for database
+    const userData: any = {
+      uid: userCredential.user.uid,
+      fullName: formData.fullName,
+      email: formData.email,
+      phone: formData.phone,
+      phoneVerified: false,
+      role,
+      registeredAt: new Date().toISOString(),
+      state: formData.state,
+      city: formData.city,
+      area: formData.area,
+      pincode: formData.pincode,
+      address: {
+        city: formData.city,
+        state: formData.state,
+        pincode: formData.pincode,
+        area: formData.area,
+      },
+      age: formData.age,
+      gender: formData.gender,
+      createdAt: Date.now(),
+      updatedAt: Date.now()
+    };
+
+    // Specific fields based on role
+    if (role === "doctor") {
+      userData.licenseNumber = formData.licenseNumber;
+      userData.specialization = formData.specialization;
+      userData.status = "pending";
+      userData.phoneVerified = false;
+      userData.emailVerified = emailVerified;
+    } else {
+      userData.category = formData.category;
+      userData.disabilityType = formData.disabilityType;
+      userData.medicalConditions = formData.medicalConditions;
+      userData.modeOfCare = formData.modeOfCare;
+      userData.status = "active";
+      userData.emailVerified = emailVerified;
+      
+      // Handle file uploads if present
+      if (formData.prescriptions) {
+        try {
+          const result = await handleFileUpload(formData.prescriptions, {
+            id: userCredential.user.uid,
+            name: formData.fullName,
+            email: formData.email
+          }, 'prescription');
+          userData.prescriptionsUrl = result.publicUrl;
+          userData.prescriptionPath = result.filePath;
+          userData.prescriptionBucket = result.bucketName;
+        } catch (uploadError) {
+          console.error("Failed to upload prescriptions:", uploadError);
+        }
+      }
+
+      if (formData.xrays) {
+        try {
+          const result = await handleFileUpload(formData.xrays, {
+            id: userCredential.user.uid,
+            name: formData.fullName,
+            email: formData.email
+          }, 'xray');
+          userData.xraysUrl = result.publicUrl;
+          userData.xraysPath = result.filePath;
+          userData.xraysBucket = result.bucketName;
+        } catch (uploadError) {
+          console.error("Failed to upload x-rays:", uploadError);
+        }
+      }
+
+      if (formData.profilePhoto) {
+        try {
+          const result = await handleFileUpload(formData.profilePhoto, {
+            id: userCredential.user.uid,
+            name: formData.fullName,
+            email: formData.email
+          }, 'profilePhoto');
+          userData.profilePhotoUrl = result.publicUrl;
+          userData.profilePhotoPath = result.filePath;
+          userData.profilePhotoBucket = result.bucketName;
+        } catch (uploadError) {
+          console.error("Failed to upload profile photo:", uploadError);
+        }
+      }
+    }
+
+    // Save to database
+    await set(ref(db, `users/${userCredential.user.uid}`), userData);
+
+    // Send registration success email to user
+    try {
+      await sendUserRegistrationSuccessEmail({
+        email: formData.email,
+        name: formData.fullName,
+        username: formData.email.split('@')[0]
+      });
+      console.log('Registration success email sent to user');
+    } catch (emailError) {
+      console.error('Failed to send registration success email:', emailError);
+    }
+
+    // Send admin notification for new user registration (NOT just doctors)
+    try {
+      await sendNewUserRegistrationNotificationToAdmin({
+        name: formData.fullName,
+        email: formData.email,
+        role: role,
+        phone: formData.phone,
+        location: `${formData.city}, ${formData.state}`,
+        registrationDate: new Date().toISOString()
+      });
+      console.log('Admin notification sent for new user registration');
+    } catch (emailError) {
+      console.error('Failed to send admin notification:', emailError);
+    }
+
+    // Send WhatsApp welcome message
+    try {
+      const whatsappResult = await WhatsAppWelcomeService.sendUserWelcomeMessage({
+        name: formData.fullName,
+        phone: formData.phone,
+        role: role === 'doctor' ? 'doctor' : 'user'
+      });
+      if (whatsappResult.success) {
+        console.log('WhatsApp welcome message sent successfully:', whatsappResult.messageId);
+      } else {
+        console.warn('WhatsApp message failed:', whatsappResult.error);
+      }
+    } catch (whatsappError) {
+      console.error('Error sending WhatsApp welcome message:', whatsappError);
+    }
+
+    if (role === "doctor") {
+      // Send admin notification email for new doctor registration
+      try {
+        await sendNewDoctorRegistrationNotification(
+          formData.fullName,
+          formData.email,
+          formData.specialization || 'General Dentistry',
+          formData.licenseNumber || 'Not provided'
+        );
+      } catch (emailError) {
+        console.error('Failed to send admin notification email:', emailError);
+      }
+
+      // Send general admin notification for new user registration
+      try {
+        await sendNewUserRegistrationNotificationToAdmin({
+          name: formData.fullName,
+          email: formData.email,
+          role: role,
+          phone: formData.phone,
+          location: `${formData.city}, ${formData.state}`,
+          registrationDate: new Date().toLocaleDateString()
+        });
+        console.log('Admin notification sent for new doctor registration');
+      } catch (emailError) {
+        console.error('Failed to send admin notification for doctor registration:', emailError);
+      }
+      
+      setRegistrationSuccess(true);
+    } else {
+      // Update auth state for users
+      localStorage.setItem("isAuthenticated", "true");
+      localStorage.setItem("userRole", role);
+      localStorage.setItem("userName", formData.fullName);
+      localStorage.setItem("uid", userCredential.user.uid);
+      window.dispatchEvent(new Event("authChange"));
+      setShowUserSuccess(true);
+    }
+    
+    setIsSubmitting(false);
+  };
+
+  // Advanced solution: Try to sign in first, then decide what to do
+  const handleEmailAlreadyInUse = async (): Promise<'allow_new_registration' | boolean> => {
+    try {
+      console.log('Checking if user can sign in with existing credentials...');
+      
+      // Try to sign in with the existing credentials
+      const signInResult = await signInWithEmailAndPassword(auth, formData.email, formData.password);
+      
+      // If sign in succeeds, check if user exists in database
+      const userRef = ref(db, `users/${signInResult.user.uid}`);
+      const userSnapshot = await get(userRef);
+      
+      if (!userSnapshot.exists()) {
+        console.log('User signed in successfully but no database record found. This account was deleted.');
+        
+        // Account was deleted - sign out and allow new registration
+        await signOut(auth);
+        
+        setError('Your previous account was deleted. You can now register as a new user with this email. Please try registering again.');
+        
+        // Delete the Firebase Auth user to allow clean registration
+        try {
+          await deleteUser(signInResult.user);
+          console.log('Deleted Firebase Auth record to allow clean registration');
+        } catch (deleteError) {
+          console.log('Could not delete auth record, but will proceed anyway:', deleteError);
+        }
+        
+        return 'allow_new_registration'; // Signal that new registration should be allowed
+      } else {
+        // User exists in database too - redirect to login
+        await signOut(auth);
+        setError('Account already exists and is active. Please sign in instead.');
+        return false;
+      }
+    } catch (signInError: any) {
+      console.log('Sign in failed, checking why:', signInError.code);
+      
+      if (signInError.code === 'auth/wrong-password' || signInError.code === 'auth/invalid-credential') {
+        // Different password - this might be a different user wanting to use this email
+        setError(`This email is registered with a different password. 
+
+Options:
+1. Use "Forgot Password" to reset your password if this is your account
+2. Try signing in with your correct password  
+3. Contact support if you believe this email should be available
+
+Note: If an admin deleted your account, contact them to ensure complete removal.`);
+      } else if (signInError.code === 'auth/user-not-found') {
+        // This shouldn't happen in email-already-in-use scenario, but if it does, allow registration
+        console.log('Unexpected: auth record not found despite email-already-in-use error');
+        return 'allow_new_registration';
+      } else {
+        setError(`Unable to verify account status. Please try the "Forgot Password" option or contact support.`);
+      }
+      return false;
+    }
+  };
 
   const renderStep = () => {
     if (role === "user") {
@@ -792,7 +1669,18 @@ const Onboarding: React.FC = () => {
             updateFormData,
             () => setStep(1),
             errors,
-            setErrors
+            setErrors,
+            emailVerified,
+            setEmailVerified,
+            otpError,
+            setOtpError,
+            captcha,
+            captchaInput,
+            captchaVerified,
+            setCaptchaInput,
+            setCaptchaVerified,
+            handleCaptchaRefresh,
+            handleCaptchaVerify
           );
         case 1:
           return (
@@ -844,24 +1732,79 @@ const Onboarding: React.FC = () => {
             <StepOptional
               data={formData}
               updateData={updateFormData}
-              prevStep={() => setStep(5)}
               onSubmit={handleSubmit}
+              prevStep={() => setStep(5)}
               isSubmitting={isSubmitting}
             />
           );
         default:
-          return null;
+          return <div>Invalid step</div>;
       }
-    } else {
+    } else if (role === "doctor") {
       return renderDoctorCredentials(
         formData,
         updateFormData,
-        handleSubmit,
+        handleDoctorFormSubmit,
         errors,
-        setErrors
+        setErrors,
+        emailVerified,
+        setEmailVerified,
+        otpError,
+        setOtpError,
+        captcha,
+        captchaInput,
+        captchaVerified,
+        setCaptchaInput,
+        setCaptchaVerified,
+        handleCaptchaRefresh,
+        handleCaptchaVerify
+      );
+    } else if (role === "organization") {
+      return renderOrganizationInfo(
+        formData,
+        updateFormData,
+        handleOrganizationFormSubmit,
+        errors,
+        setErrors,
+        emailVerified,
+        setEmailVerified,
+        otpError,
+        setOtpError,
+        captcha,
+        captchaInput,
+        captchaVerified,
+        setCaptchaInput,
+        setCaptchaVerified,
+        handleCaptchaRefresh,
+        handleCaptchaVerify,
+        bookedDates,
+        setError
       );
     }
+    return <div>Invalid role</div>;
   };
+
+  if (registrationSuccess) {
+    return <DoctorRegistrationSuccess />;
+  }
+
+  if (showUserSuccess) {
+    return (
+      <UserRegistrationSuccess
+        fullName={formData.fullName}
+        onClose={() => navigate('/')}
+      />
+    );
+  }
+
+  if (showOrganizationSuccess) {
+    return (
+      <OrganizationRegistrationSuccess
+        organizationName={formData.organizationName}
+        onClose={() => navigate('/')}
+      />
+    );
+  }
 
   return (
     <div className={boxClasses}>
@@ -878,7 +1821,7 @@ const Onboarding: React.FC = () => {
           <FaUser /> User
         </button>
         <button
-          className={tabClasses(role === "doctor") + " rounded-r-lg"}
+          className={tabClasses(role === "doctor")}
           onClick={() => {
             setRole("doctor");
             setStep(0);
@@ -887,8 +1830,66 @@ const Onboarding: React.FC = () => {
         >
           <FaUserMd /> Doctor
         </button>
+        <button
+          className={tabClasses(role === "organization") + " rounded-r-lg"}
+          onClick={() => {
+            setRole("organization");
+            setStep(0);
+            setErrors({});
+          }}
+        >
+          <FaBuilding /> Organization
+        </button>
       </div>
-      {error && <div className="text-red-500 text-center mb-4">{error}</div>}
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
+          <div className="text-red-700 text-sm whitespace-pre-line">{error}</div>
+          {(error.includes('Quick Fix Options') || 
+            error.includes('email is already registered in our system')) && (
+            <div className="mt-3 flex flex-col gap-2">
+              <button
+                onClick={() => handleEmailAlreadyInUse()}
+                className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 text-sm font-medium"
+                disabled={isSubmitting}
+              >
+                🔧 Try Account Recovery (Automatic)
+              </button>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <button
+                  onClick={() => handlePasswordReset(formData.email)}
+                  className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 text-sm"
+                  disabled={isSubmitting}
+                >
+                  📧 Send Password Reset Email
+                </button>
+                <button
+                  onClick={() => {
+                    setError("");
+                    navigate('/auth?mode=login');
+                  }}
+                  className="bg-gray-600 text-white px-4 py-2 rounded hover:bg-gray-700 text-sm"
+                >
+                  Go to Login Page
+                </button>
+              </div>
+            </div>
+          )}
+          {(error.includes('account with this email already exists') ||
+            error.includes('Please sign in instead')) && (
+            <div className="mt-3">
+              <button
+                onClick={() => {
+                  setError("");
+                  navigate('/auth?mode=login');
+                }}
+                className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 text-sm"
+              >
+                Go to Login Page
+              </button>
+            </div>
+          )}
+        </div>
+      )}
       {renderStep()}
     </div>
   );

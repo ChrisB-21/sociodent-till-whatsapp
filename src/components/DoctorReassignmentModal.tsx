@@ -34,6 +34,7 @@ interface Appointment {
   id: string;
   userId: string;
   userName: string;
+  userEmail?: string;
   consultationType: string;
   date: string;
   time: string;
@@ -188,6 +189,51 @@ const DoctorReassignmentModal: React.FC<DoctorReassignmentModalProps> = ({
           appointment.date,
           appointment.time
         );
+        
+        // Send email notification to the assigned doctor
+        try {
+          const { sendDoctorAssignmentNotificationToDoctor, sendDoctorAssignmentEmailToPatient } = await import('../services/emailService');
+          
+          // Get doctor's email from Firebase
+          const doctorRef = ref(db, `users/${selectedDoctor.id}`);
+          const doctorSnapshot = await get(doctorRef);
+          
+          if (doctorSnapshot.exists()) {
+            const doctorData = doctorSnapshot.val();
+            if (doctorData.email) {
+              // Send email to doctor
+              await sendDoctorAssignmentNotificationToDoctor(
+                selectedDoctor.fullName,
+                doctorData.email,
+                appointment.userName,
+                appointment.userEmail || '',
+                appointment.date,
+                appointment.time,
+                appointment.consultationType || 'consultation',
+                appointment.id
+              );
+              console.log(`Email notification sent to doctor: ${doctorData.email}`);
+              
+              // Send email to patient about doctor assignment
+              if (appointment.userEmail) {
+                await sendDoctorAssignmentEmailToPatient({
+                  patientName: appointment.userName,
+                  patientEmail: appointment.userEmail,
+                  doctorName: selectedDoctor.fullName,
+                  doctorSpecialization: selectedDoctor.specialization,
+                  date: appointment.date,
+                  time: appointment.time,
+                  consultationType: appointment.consultationType,
+                  appointmentId: appointment.id
+                });
+                console.log(`Doctor assignment email sent to patient: ${appointment.userEmail}`);
+              }
+            }
+          }
+        } catch (emailError) {
+          console.error('Error sending email notifications:', emailError);
+          // Don't fail the assignment if email fails
+        }
         
         console.log('Notifications sent successfully');
       } catch (notificationError) {

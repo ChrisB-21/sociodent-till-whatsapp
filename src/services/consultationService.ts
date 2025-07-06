@@ -1,7 +1,7 @@
 // Consultation Service - Handles appointment booking and data management
 import { db } from '@/firebase';
-import { ref, push, set, get, update } from 'firebase/database';
-import { assignDoctorToAppointment } from '@/lib/doctorAssignment';
+import { sendPaymentReceiptEmail } from '@/services/emailService';
+import { ref, push, set, get, update, query, orderByChild, equalTo } from 'firebase/database';
 import { fileUploadService, FileUploadService } from './fileUploadService';
 import { sendAppointmentConfirmationEmail } from '@/services/emailService';
 
@@ -104,7 +104,7 @@ export class ConsultationService {
   /**
    * Generate available time slots
    */
-  public getAvailableTimeSlots(): string[] {
+  public getAvailableTimeSlots(dateStr?: string): string[] {
     const timeSlots = [];
     // Generate time slots from 9:00 AM to 8:00 PM in 1-hour intervals
     for (let hour = 9; hour <= 20; hour++) {
@@ -113,7 +113,38 @@ export class ConsultationService {
       const timeString = `${displayHour}:00 ${period}`;
       timeSlots.push(timeString);
     }
-    return timeSlots;
+    // If date is today, filter slots based on current time
+    if (dateStr) {
+      const today = new Date();
+      const selectedDate = new Date(dateStr);
+      today.setHours(0, 0, 0, 0);
+      selectedDate.setHours(0, 0, 0, 0);
+      if (today.getTime() === selectedDate.getTime()) {
+        const now = new Date();
+        // Only allow slots at least 1 hour from now
+        const minHour = now.getHours() + 1;
+        // If current time is after or at 18:00 (6 PM), no slots for today
+        if (now.getHours() >= 18) {
+          return [];
+        }
+        return timeSlots.filter(slot => {
+          // Parse slot hour
+          let [slotHour, slotMin] = slot.split(':');
+          let [hour, period] = [parseInt(slotHour), slot.includes('PM') ? 'PM' : 'AM'];
+          if (period === 'PM' && hour !== 12) hour += 12;
+          if (period === 'AM' && hour === 12) hour = 0;
+          return hour >= minHour && hour <= 18; // Only allow up to 6:00 PM
+        });
+      }
+    }
+    // For other days, only allow up to 6:00 PM
+    return timeSlots.filter(slot => {
+      let [slotHour, slotMin] = slot.split(':');
+      let [hour, period] = [parseInt(slotHour), slot.includes('PM') ? 'PM' : 'AM'];
+      if (period === 'PM' && hour !== 12) hour += 12;
+      if (period === 'AM' && hour === 12) hour = 0;
+      return hour <= 18;
+    });
   }
 
   /**
@@ -128,6 +159,88 @@ export class ConsultationService {
       minDate: today.toISOString().split('T')[0],
       maxDate: maxDate.toISOString().split('T')[0],
     };
+  }
+
+  /**
+   * Get user's appointment history
+   */
+  public async getUserAppointments(userId?: string): Promise<any[]> {
+    try {
+      const currentUserId = userId || localStorage.getItem('userId') || localStorage.getItem('uid');
+      
+      if (!currentUserId || currentUserId === 'anonymous') {
+        return [];
+      }
+
+      const appointmentsRef = ref(db, 'appointments');
+      const userAppointmentsQuery = query(
+        appointmentsRef,
+        orderByChild('userId'),
+        equalTo(currentUserId)
+      );
+      
+      const appointmentsSnapshot = await get(userAppointmentsQuery);
+      
+      if (!appointmentsSnapshot.exists()) {
+        return [];
+      }
+
+      const appointments = appointmentsSnapshot.val();
+      const appointmentsList = Object.entries(appointments).map(([id, data]: [string, any]) => ({
+        id,
+        ...data
+      }));
+
+      // Sort by creation date (newest first)
+      return appointmentsList.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    } catch (error) {
+      console.error('Error fetching user appointments:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Check if user has any pending appointments
+   */
+  public async hasIncompleteAppointments(userId?: string): Promise<{ hasIncomplete: boolean; appointments?: any[] }> {
+    try {
+      const currentUserId = userId || localStorage.getItem('userId') || localStorage.getItem('uid');
+      
+      if (!currentUserId || currentUserId === 'anonymous') {
+        return { hasIncomplete: false };
+      }
+
+      const appointmentsRef = ref(db, 'appointments');
+      const userAppointmentsQuery = query(
+        appointmentsRef,
+        orderByChild('userId'),
+        equalTo(currentUserId)
+      );
+      
+      const appointmentsSnapshot = await get(userAppointmentsQuery);
+      
+      if (!appointmentsSnapshot.exists()) {
+        return { hasIncomplete: false };
+      }
+
+      const appointments = appointmentsSnapshot.val();
+      const appointmentsList = Object.entries(appointments).map(([id, data]: [string, any]) => ({
+        id,
+        ...data
+      }));
+
+      const incompleteAppointments = appointmentsList.filter((appointment: any) =>
+        appointment.status && appointment.status !== 'completed' && appointment.status !== 'cancelled'
+      );
+
+      return {
+        hasIncomplete: incompleteAppointments.length > 0,
+        appointments: incompleteAppointments
+      };
+    } catch (error) {
+      console.error('Error checking incomplete appointments:', error);
+      return { hasIncomplete: false };
+    }
   }
 
   /**
@@ -182,6 +295,37 @@ export class ConsultationService {
       // Get user information
       const userId = localStorage.getItem('userId') || localStorage.getItem('uid') || 'anonymous';
       const userEmail = localStorage.getItem('userEmail') || '';
+
+      // Check for existing non-completed appointments
+      if (userId !== 'anonymous') {
+        try {
+          const appointmentsRef = ref(db, 'appointments');
+          const userAppointmentsQuery = query(
+            appointmentsRef,
+            orderByChild('userId'),
+            equalTo(userId)
+          );
+          const appointmentsSnapshot = await get(userAppointmentsQuery);
+          
+          if (appointmentsSnapshot.exists()) {
+            const appointments = appointmentsSnapshot.val();
+            const hasIncompleteAppointment = Object.values(appointments).some((appointment: any) => 
+              appointment.status && appointment.status !== 'completed' && appointment.status !== 'cancelled'
+            );
+            
+            if (hasIncompleteAppointment) {
+              return {
+                success: false,
+                error: 'You cannot book a new appointment while you have pending appointments. Please wait for your current appointment to be completed.',
+                appointmentId: undefined,
+              };
+            }
+          }
+        } catch (error) {
+          console.warn('Could not check existing appointments:', error);
+          // Continue with booking if check fails (don't block user due to technical issues)
+        }
+      }
 
       // Fetch user area information
       let userArea: string | undefined;
@@ -261,51 +405,31 @@ export class ConsultationService {
         throw new Error('Failed to create appointment record');
       }
 
-      // Assign doctor to appointment
-      let doctorAssigned = false;
-      let assignedDoctorName: string | undefined;
-      let assignedDoctorSpecialization: string | undefined;
+      // DO NOT assign doctor automatically. Admin will assign manually.
+      // Optionally, you can notify admin or set a flag for pending assignment.
+      // await update(newAppointmentRef, { needsManualAssignment: true });
+
+      // Send admin notification about new appointment
       try {
-        console.log('Starting doctor assignment for appointment:', appointmentId);
-        
-        // Add a small delay to ensure database consistency
-        await new Promise(resolve => setTimeout(resolve, 500));
-        
-        const assignmentResult = await assignDoctorToAppointment(appointmentId);
-        doctorAssigned = assignmentResult.success;
-        assignedDoctorName = doctorAssigned ? assignmentResult.doctorName : undefined;
-        assignedDoctorSpecialization = doctorAssigned ? assignmentResult.matchDetails?.doctor.specialization : undefined;
-        
-        if (!assignmentResult.success) {
-          console.warn('Doctor assignment failed:', assignmentResult.message);
-          
-          // Update appointment to indicate manual assignment is needed
-          const appointmentRef = ref(db, `appointments/${appointmentId}`);
-          await update(appointmentRef, {
-            needsManualAssignment: true,
-            assignmentAttempted: true,
-            assignmentErrorMessage: assignmentResult.message
-          });
-        } else {
-          console.log('Doctor assignment successful:', assignmentResult.doctorName);
-        }
-      } catch (error) {
-        console.error('Error during doctor assignment:', error);
-        
-        // Update appointment to indicate error
-        try {
-          const appointmentRef = ref(db, `appointments/${appointmentId}`);
-          await update(appointmentRef, {
-            needsManualAssignment: true,
-            assignmentAttempted: true,
-            assignmentErrorMessage: error instanceof Error ? error.message : 'Unknown error'
-          });
-        } catch (updateError) {
-          console.error('Failed to update appointment with error info:', updateError);
-        }
+        const { sendEnhancedNewAppointmentNotificationToAdmin } = await import('./emailService');
+        await sendEnhancedNewAppointmentNotificationToAdmin({
+          appointmentId,
+          patientName: formData.name,
+          patientEmail: userEmail,
+          date: formData.date,
+          time: formData.time,
+          consultationType,
+          symptoms: formData.symptoms,
+          paymentAmount: consultation.price,
+          paymentMethod
+        });
+        console.log('Enhanced admin notification sent successfully');
+      } catch (adminEmailError) {
+        console.error('Error sending enhanced admin notification:', adminEmailError);
+        // Don't fail the appointment creation if email fails
       }
 
-      // After doctor assignment, send confirmation email
+      // After appointment creation, send confirmation email (without doctor info)
       try {
         await sendAppointmentConfirmationEmail({
           patientName: formData.name,
@@ -313,14 +437,34 @@ export class ConsultationService {
           date: formData.date,
           time: formData.time,
           consultationType,
-          doctorName: assignedDoctorName,
-          doctorSpecialization: assignedDoctorSpecialization,
+          doctorName: undefined, // No doctor assigned yet
+          doctorSpecialization: undefined,
           paymentMethod,
           paymentAmount: consultation.price,
           appointmentId,
         });
       } catch (emailError) {
         console.error('Error sending appointment confirmation email:', emailError);
+      }
+
+      // After payment, send payment receipt email
+      try {
+        // If you have a paymentId from your payment gateway, replace 'PAYMENT_ID_HERE' with the real value
+        await sendPaymentReceiptEmail({
+          patientName: formData.name,
+          patientEmail: userEmail,
+          date: formData.date,
+          time: formData.time,
+          consultationType,
+          doctorName: undefined, // No doctor assigned yet
+          doctorSpecialization: undefined,
+          paymentMethod,
+          paymentAmount: consultation.price,
+          paymentId: 'DUMMY_PAYMENT_ID', // Dummy payment ID for testing
+          appointmentId,
+        });
+      } catch (paymentEmailError) {
+        console.error('Error sending payment receipt email:', paymentEmailError);
       }
 
       // Save phone number for future use
@@ -331,7 +475,7 @@ export class ConsultationService {
       return {
         success: true,
         appointmentId,
-        doctorAssigned,
+        doctorAssigned: false, // No doctor assigned
       };
 
     } catch (error: any) {

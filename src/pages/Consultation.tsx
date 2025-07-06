@@ -20,6 +20,9 @@ const Consultation = () => {
 		paymentMethod,
 		isProcessingPayment,
 		showReportWarning,
+		hasIncompleteAppointments,
+		incompleteAppointments,
+		isCheckingAppointments,
 		
 		// Form data
 		formData,
@@ -101,15 +104,45 @@ const Consultation = () => {
 									<div className="p-6">
 										<h1 className="text-2xl font-bold text-gray-900 mb-6">Book Your Consultation</h1>
 
+										{/* Incomplete Appointments Warning */}
+										{isCheckingAppointments && (
+											<div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+												<p className="text-blue-800">
+													<span className="inline-block animate-spin mr-2">⏳</span>
+													Checking for existing appointments...
+												</p>
+											</div>
+										)}
+
+										{hasIncompleteAppointments && incompleteAppointments.length > 0 && (
+											<div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+												<h3 className="text-red-800 font-semibold mb-2">⚠️ Cannot Book New Appointment</h3>
+												<p className="text-red-700 mb-3">
+													You have {incompleteAppointments.length} incomplete appointment{incompleteAppointments.length > 1 ? 's' : ''} that must be completed before booking a new one:
+												</p>
+												<ul className="list-disc list-inside text-red-700 space-y-1">
+													{incompleteAppointments.map((appointment, index) => (
+														<li key={index}>
+															{appointment.consultationType} consultation on {appointment.date} at {appointment.time} 
+															{appointment.status && ` (Status: ${appointment.status})`}
+														</li>
+													))}
+												</ul>
+												<p className="text-red-700 mt-3 font-medium">
+													Please complete your existing appointment(s) before booking a new one.
+												</p>
+											</div>
+										)}
+
 										{/* Consultation Type */}
-										<div className="mb-6">
+										<div className={`mb-6 ${hasIncompleteAppointments ? 'opacity-50 pointer-events-none' : ''}`}>
 											<Label className="text-base font-medium mb-3 block">Select Consultation Type</Label>
 											<div className="grid grid-cols-1 md:grid-cols-3 gap-4">
 												{consultationTypes.map((type) => (
 													<div
 														key={type.type}
 														className={`border rounded-xl p-4 cursor-pointer transition-all ${consultationType === type.type ? 'border-sociodent-600 bg-sociodent-50' : 'border-gray-200 hover:border-sociodent-300'}`}
-														onClick={() => setConsultationType(type.type)}
+														onClick={() => !hasIncompleteAppointments && setConsultationType(type.type)}
 													>
 														<div className="flex items-center mb-2">
 															{getConsultationIcon(type.type)}
@@ -123,7 +156,7 @@ const Consultation = () => {
 										</div>
 
 										{/* Personal Information */}
-										<div className="mb-6">
+										<div className={`mb-6 ${hasIncompleteAppointments ? 'opacity-50 pointer-events-none' : ''}`}>
 											<h2 className="text-lg font-semibold mb-4">Personal Information</h2>
 											<div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
 												<div>
@@ -134,6 +167,7 @@ const Consultation = () => {
 														onChange={(e) => setFormData({ name: e.target.value })}
 														placeholder="John Doe"
 														required
+														disabled={hasIncompleteAppointments}
 													/>
 												</div>
 												<div>
@@ -144,6 +178,7 @@ const Consultation = () => {
 														onChange={(e) => setFormData({ phone: e.target.value })}
 														placeholder="+91 12345 67890"
 														required
+														disabled={hasIncompleteAppointments}
 													/>
 												</div>
 											</div>
@@ -159,6 +194,7 @@ const Consultation = () => {
 														max={dateConstraints.maxDate}
 														onChange={(e) => setFormData({ date: e.target.value })}
 														required
+														disabled={hasIncompleteAppointments}
 													/>
 												</div>
 												<div>
@@ -169,6 +205,7 @@ const Consultation = () => {
 														onChange={(e) => setFormData({ time: e.target.value })}
 														className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
 														required
+														disabled={hasIncompleteAppointments}
 													>
 														{availableTimeSlots.map((slot) => (
 															<option key={slot} value={slot}>
@@ -189,13 +226,14 @@ const Consultation = () => {
 														placeholder="Your full address"
 														rows={3}
 														required
+														disabled={hasIncompleteAppointments}
 													/>
 												</div>
 											)}
 										</div>
 
 										{/* Symptoms */}
-										<div className="mb-6">
+										<div className={`mb-6 ${hasIncompleteAppointments ? 'opacity-50 pointer-events-none' : ''}`}>
 											<h2 className="text-lg font-semibold mb-4">Dental Symptoms</h2>
 											<div className="mb-4">
 												<Label htmlFor="symptoms">Describe your symptoms *</Label>
@@ -206,6 +244,7 @@ const Consultation = () => {
 													placeholder="Describe what dental issues you're experiencing"
 													rows={4}
 													required
+													disabled={hasIncompleteAppointments}
 												/>
 											</div>
 
@@ -217,6 +256,7 @@ const Consultation = () => {
 														checked={formData.hasReport}
 														onChange={(e) => setFormData({ hasReport: e.target.checked })}
 														className="mr-2"
+														disabled={hasIncompleteAppointments}
 													/>
 													<Label htmlFor="hasReport" className="cursor-pointer">
 														Upload Dental Report or X-ray (optional)
@@ -235,6 +275,7 @@ const Consultation = () => {
 																}
 															}}
 															accept=".pdf,.jpg,.jpeg,.png"
+															disabled={hasIncompleteAppointments}
 														/>
 														<p className="text-xs text-gray-500 mt-1">
 															Accepted formats: PDF, JPG, PNG (Max size: 5MB)
@@ -249,8 +290,18 @@ const Consultation = () => {
 												<span className="font-medium">Total:</span>
 												<span className="text-xl font-bold text-sociodent-600">₹{selectedConsultation.price.toFixed(2)}</span>
 											</div>
-											<Button className="w-full" onClick={handleContinue}>
-												Continue to Payment <ChevronRight className="ml-1 h-4 w-4" />
+											<Button 
+												className="w-full" 
+												onClick={handleContinue}
+												disabled={hasIncompleteAppointments || isCheckingAppointments}
+											>
+												{hasIncompleteAppointments 
+													? 'Complete Existing Appointments First' 
+													: isCheckingAppointments 
+														? 'Checking Appointments...' 
+														: 'Continue to Payment'
+												} 
+												{!hasIncompleteAppointments && !isCheckingAppointments && <ChevronRight className="ml-1 h-4 w-4" />}
 											</Button>
 										</div>
 									</div>

@@ -51,11 +51,40 @@ const Navbar = () => {
   const doctorLinks = [{ name: "My Appointments", path: "/doctor-portal" }];
   const adminLinks = [{ name: "Admin Portal", path: "/admin-portal" }];
 
-  let activeLinks = [...commonLinks];
-  if (user) {
-    if (user.role === "doctor") activeLinks.splice(1, 0, ...doctorLinks);
-    else if (user.role === "admin") activeLinks.unshift(...adminLinks);
-    else activeLinks.splice(1, 0, ...userLinks);
+  // Detect if on login or signup page
+  const isAuthPage = location.pathname.startsWith('/auth') || location.pathname.startsWith('/signup');
+
+  // Get user role from multiple sources for consistency and force admin detection
+  const userRole = user?.role || localStorage.getItem('userRole') || '';
+  const currentPath = location.pathname;
+  const isAuthenticated = localStorage.getItem('isAuthenticated') === 'true';
+  
+  // Force admin detection with multiple checks
+  const isAdmin = (
+    userRole === 'admin' || 
+    localStorage.getItem('userRole') === 'admin' ||
+    currentPath.includes('/admin-portal') ||
+    currentPath.includes('/admin')
+  );
+  
+  const isDoctor = !isAdmin && (userRole === 'doctor' || currentPath.includes('/doctor-portal'));
+  const isUser = !isAdmin && !isDoctor;
+
+  // Remove all links if on login/signup page
+  let activeLinks = isAuthPage ? [] : [...commonLinks];
+  
+  // Only show navigation if authenticated and not on auth pages
+  if (!isAuthPage && isAuthenticated && user) {
+    if (isAdmin) {
+      // Admin gets: Admin Portal, Home, Products, About Us
+      activeLinks = [adminLinks[0], ...commonLinks];
+    } else if (isDoctor) {
+      // Doctor gets: Home, My Appointments, Products, About Us
+      activeLinks = [commonLinks[0], ...doctorLinks, ...commonLinks.slice(1)];
+    } else {
+      // User gets: Home, Find Dentist, Products, About Us  
+      activeLinks = [commonLinks[0], ...userLinks, ...commonLinks.slice(1)];
+    }
   }
 
   return (
@@ -95,7 +124,16 @@ const Navbar = () => {
         </nav>
 
         <div className="hidden lg:flex items-center gap-4">
-          {user ? (
+          {isAuthPage ? (
+            <>
+              <Link to="/auth?mode=login" className="button-text">
+                Log in
+              </Link>
+              <Link to="/signup" className="button-primary py-2">
+                Sign up
+              </Link>
+            </>
+          ) : user ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <div className="flex items-center gap-2 cursor-pointer p-2 text-gray-700 hover:text-black">
@@ -104,7 +142,7 @@ const Navbar = () => {
                 </div>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                {user.role === "user" && (
+                {isUser && (
                   <DropdownMenuItem onClick={() => navigate("/my-profile")}>
                     <UserCircle className="mr-2 h-4 w-4" />
                     My Profile
@@ -154,9 +192,26 @@ const Navbar = () => {
                   {link.name}
                 </Link>
               ))}
-              {user ? (
+              {isAuthPage ? (
                 <>
-                  {user.role === "user" && (
+                  <Link
+                    to="/auth?mode=login"
+                    onClick={() => setIsOpen(false)}
+                    className="text-gray-700 hover:text-black"
+                  >
+                    Login
+                  </Link>
+                  <Link
+                    to="/signup"
+                    onClick={() => setIsOpen(false)}
+                    className="text-gray-700 hover:text-black"
+                  >
+                    Signup
+                  </Link>
+                </>
+              ) : user ? (
+                <>
+                  {isUser && (
                     <Link
                       to="/my-profile"
                       onClick={() => setIsOpen(false)}

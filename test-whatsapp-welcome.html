@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WhatsApp Welcome Message Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #25D366;
+            text-align: center;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input, select {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        button {
+            background-color: #25D366;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background-color: #128C7E;
+        }
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        .result {
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        .success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .info {
+            background-color: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+        .status-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+            margin-top: 10px;
+        }
+        .status-item {
+            padding: 10px;
+            border-radius: 4px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <h1>📱 WhatsApp Welcome Message Test</h1>
+    
+    <div class="container">
+        <h2>Configuration Status</h2>
+        <button onclick="checkStatus()">Check WhatsApp Configuration</button>
+        <div id="statusResult" class="result" style="display: none;"></div>
+    </div>
+
+    <div class="container">
+        <h2>Test Welcome Message</h2>
+        <div class="form-group">
+            <label for="testName">Name:</label>
+            <input type="text" id="testName" placeholder="Enter test name" value="Test User">
+        </div>
+        <div class="form-group">
+            <label for="testPhone">Phone Number:</label>
+            <input type="tel" id="testPhone" placeholder="Enter phone number (e.g., 917042469530)" value="917042469530">
+        </div>
+        <div class="form-group">
+            <label for="testRole">Role:</label>
+            <select id="testRole">
+                <option value="user">User</option>
+                <option value="doctor">Doctor</option>
+            </select>
+        </div>
+        <button onclick="testDirectAPI()">Test Direct API</button>
+        <button onclick="testBackendAPI()">Test Backend API</button>
+        <button onclick="testSimpleMessage()">Test Simple Hello World</button>
+        <div id="testResult" class="result" style="display: none;"></div>
+    </div>
+
+    <div class="container">
+        <h2>Signup Integration Test</h2>
+        <p>This simulates the signup flow that sends WhatsApp welcome messages:</p>
+        <div class="form-group">
+            <label for="signupName">Full Name:</label>
+            <input type="text" id="signupName" placeholder="Enter full name" value="John Doe">
+        </div>
+        <div class="form-group">
+            <label for="signupPhone">Phone Number:</label>
+            <input type="tel" id="signupPhone" placeholder="Enter phone number" value="917042469530">
+        </div>
+        <div class="form-group">
+            <label for="signupRole">Role:</label>
+            <select id="signupRole">
+                <option value="user">User</option>
+                <option value="doctor">Doctor</option>
+            </select>
+        </div>
+        <button onclick="testSignupFlow()">Test Signup Welcome Message</button>
+        <div id="signupResult" class="result" style="display: none;"></div>
+    </div>
+
+    <script>
+        // Configuration
+        const BACKEND_URL = 'http://localhost:3000';
+        
+        // Helper function to show results
+        function showResult(elementId, message, type = 'info') {
+            const element = document.getElementById(elementId);
+            element.style.display = 'block';
+            element.className = `result ${type}`;
+            element.innerHTML = message;
+        }
+
+        // Check WhatsApp configuration status
+        async function checkStatus() {
+            try {
+                showResult('statusResult', 'Checking configuration...', 'info');
+                
+                const response = await fetch(`${BACKEND_URL}/api/whatsapp/status`);
+                const data = await response.json();
+                
+                if (data.configured) {
+                    showResult('statusResult', `
+                        <strong>✅ WhatsApp is configured!</strong><br>
+                        Phone Number ID: ${data.phoneNumberId}<br>
+                        Has Access Token: ${data.hasAccessToken ? 'Yes' : 'No'}
+                    `, 'success');
+                } else {
+                    showResult('statusResult', `
+                        <strong>❌ WhatsApp is not configured</strong><br>
+                        Phone Number ID: ${data.phoneNumberId}<br>
+                        Has Access Token: ${data.hasAccessToken ? 'Yes' : 'No'}<br>
+                        <br>Please set WHATSAPP_ACCESS_TOKEN and WHATSAPP_PHONE_NUMBER_ID in your environment variables.
+                    `, 'error');
+                }
+            } catch (error) {
+                showResult('statusResult', `❌ Error checking status: ${error.message}`, 'error');
+            }
+        }
+
+        // Test direct API call (frontend to Facebook Graph API)
+        async function testDirectAPI() {
+            const name = document.getElementById('testName').value;
+            const phone = document.getElementById('testPhone').value;
+            const role = document.getElementById('testRole').value;
+            
+            if (!name || !phone) {
+                showResult('testResult', '❌ Please enter name and phone number', 'error');
+                return;
+            }
+            
+            try {
+                showResult('testResult', 'Testing direct API call...', 'info');
+                
+                // This would require the WhatsAppWelcomeService to be available in browser
+                // For now, we'll show that this method exists
+                showResult('testResult', `
+                    ⚠️ Direct API test requires WhatsApp service import<br>
+                    This would call: WhatsAppWelcomeService.sendUserWelcomeMessage({
+                        name: "${name}",
+                        phone: "${phone}",
+                        role: "${role}"
+                    })
+                `, 'info');
+                
+            } catch (error) {
+                showResult('testResult', `❌ Direct API test failed: ${error.message}`, 'error');
+            }
+        }
+
+        // Test backend API call
+        async function testBackendAPI() {
+            const name = document.getElementById('testName').value;
+            const phone = document.getElementById('testPhone').value;
+            const role = document.getElementById('testRole').value;
+            
+            if (!name || !phone) {
+                showResult('testResult', '❌ Please enter name and phone number', 'error');
+                return;
+            }
+            
+            try {
+                showResult('testResult', 'Testing backend API...', 'info');
+                
+                const response = await fetch(`${BACKEND_URL}/api/whatsapp/send-welcome`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        name: name,
+                        phone: phone,
+                        role: role
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showResult('testResult', `
+                        ✅ Backend API test successful!<br>
+                        Message ID: ${data.messageId}<br>
+                        Message: ${data.message}
+                    `, 'success');
+                } else {
+                    showResult('testResult', `❌ Backend API test failed: ${data.error}`, 'error');
+                }
+                
+            } catch (error) {
+                showResult('testResult', `❌ Backend API test failed: ${error.message}`, 'error');
+            }
+        }
+
+        // Test simple hello world message
+        async function testSimpleMessage() {
+            const phone = document.getElementById('testPhone').value;
+            
+            if (!phone) {
+                showResult('testResult', '❌ Please enter phone number', 'error');
+                return;
+            }
+            
+            try {
+                showResult('testResult', 'Testing simple hello world message...', 'info');
+                
+                const response = await fetch(`${BACKEND_URL}/api/whatsapp/test`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        phone: phone
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showResult('testResult', `
+                        ✅ Simple message test successful!<br>
+                        Message ID: ${data.messageId}<br>
+                        Message: ${data.message}
+                    `, 'success');
+                } else {
+                    showResult('testResult', `❌ Simple message test failed: ${data.error}`, 'error');
+                }
+                
+            } catch (error) {
+                showResult('testResult', `❌ Simple message test failed: ${error.message}`, 'error');
+            }
+        }
+
+        // Test signup flow integration
+        async function testSignupFlow() {
+            const name = document.getElementById('signupName').value;
+            const phone = document.getElementById('signupPhone').value;
+            const role = document.getElementById('signupRole').value;
+            
+            if (!name || !phone) {
+                showResult('signupResult', '❌ Please enter name and phone number', 'error');
+                return;
+            }
+            
+            try {
+                showResult('signupResult', 'Testing signup welcome message flow...', 'info');
+                
+                // Simulate the signup process
+                const response = await fetch(`${BACKEND_URL}/api/whatsapp/send-welcome`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        name: name,
+                        phone: phone,
+                        role: role
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showResult('signupResult', `
+                        ✅ Signup welcome message sent successfully!<br>
+                        Welcome ${name}! 🎉<br>
+                        Message ID: ${data.messageId}<br>
+                        <br>
+                        This is what happens when users sign up:
+                        <ol>
+                            <li>User fills out signup form</li>
+                            <li>Account is created in Firebase</li>
+                            <li>WhatsApp welcome message is sent</li>
+                            <li>User receives welcome message on WhatsApp</li>
+                        </ol>
+                    `, 'success');
+                } else {
+                    showResult('signupResult', `
+                        ❌ Signup welcome message failed: ${data.error}<br>
+                        <br>
+                        Note: In the actual signup process, registration would still succeed 
+                        even if WhatsApp message fails.
+                    `, 'error');
+                }
+                
+            } catch (error) {
+                showResult('signupResult', `❌ Signup test failed: ${error.message}`, 'error');
+            }
+        }
+
+        // Auto-check status on page load
+        window.onload = function() {
+            checkStatus();
+        };
+    </script>
+</body>
+</html>

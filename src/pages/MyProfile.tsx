@@ -13,13 +13,15 @@ import {
   FaExclamationTriangle,
   FaFilePdf,
   FaFileImage,
+  FaUserMd,
 } from "react-icons/fa";
 import { useNavigate } from "react-router-dom";
 import { auth, db, storage } from "@/firebase";
 import { onAuthStateChanged, updatePassword, reauthenticateWithCredential, EmailAuthProvider } from "firebase/auth";
-import { ref, onValue, update, get } from "firebase/database";
+import { ref, onValue, update, get, query, orderByChild, equalTo } from "firebase/database";
 import { ref as storageRef, getDownloadURL, listAll, uploadBytes, deleteObject, getMetadata } from "firebase/storage";
 import { useToast } from "@/hooks/use-toast";
+import { sendAppointmentCancellationEmails } from "@/services/emailService";
 import { v4 as uuidv4 } from 'uuid';
 
 // Sidebar item component
@@ -61,6 +63,14 @@ const initialProfile = {
   modeOfCare: "",
 };
 
+interface Prescription {
+  medicine: string;
+  doctorName: string;
+  doctorId: string;
+  createdAt: number;
+  appointmentId?: string;
+}
+
 const MyProfile = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [userRole, setUserRole] = useState("");
@@ -77,6 +87,8 @@ const MyProfile = () => {
   const [successMessage, setSuccessMessage] = useState("");
   const [loading, setLoading] = useState(true);
   const [appointments, setAppointments] = useState([]);
+  const [showCancelDialog, setShowCancelDialog] = useState(false);
+  const [appointmentToCancel, setAppointmentToCancel] = useState(null);
   const [medicalRecords, setMedicalRecords] = useState<{
     name: string, 
     url: string,
@@ -84,6 +96,13 @@ const MyProfile = () => {
     category?: string,
     uploadDate?: string
   }[]>([]);
+  const [prescriptions, setPrescriptions] = useState<Prescription[]>([]);
+  const [doctors, setDoctors] = useState<Record<string, any>>({});
+  const [selectedDoctor, setSelectedDoctor] = useState<{
+    name: string;
+    phone: string;
+    email: string;
+  } | null>(null);
 
   const navigate = useNavigate();
   const toast = useToast ? useToast() : { toast: (msg) => alert(msg.description) };
@@ -111,6 +130,46 @@ const MyProfile = () => {
       setMedicalRecords(records);
     } catch (error) {
       console.error("Error fetching medical records:", error);
+    }
+  };
+
+  // Fetch prescriptions for the user
+  const fetchPrescriptions = async (userId: string) => {
+    try {
+      console.log('Fetching prescriptions for userId:', userId);
+      const presRef = ref(db, `prescriptions/${userId}`);
+      const snapshot = await get(presRef);
+      
+      console.log('Prescription snapshot exists:', snapshot.exists());
+      if (snapshot.exists()) {
+        const prescriptionsData = snapshot.val();
+        console.log('Raw prescriptions data:', prescriptionsData);
+        const prescriptionsList: Prescription[] = Object.values(prescriptionsData);
+        console.log('Processed prescriptions list:', prescriptionsList);
+        setPrescriptions(prescriptionsList);
+        
+        // Fetch doctor details for each prescription
+        const doctorIds = Array.from(new Set(prescriptionsList.map(p => p.doctorId)));
+        console.log('Doctor IDs found in prescriptions:', doctorIds);
+        const doctorsData: Record<string, any> = {};
+        
+        for (const doctorId of doctorIds) {
+          const doctorRef = ref(db, `users/${doctorId}`);
+          const doctorSnapshot = await get(doctorRef);
+          if (doctorSnapshot.exists()) {
+            doctorsData[doctorId] = doctorSnapshot.val();
+          }
+        }
+        
+        console.log('Doctors data fetched:', doctorsData);
+        setDoctors(doctorsData);
+      } else {
+        console.log('No prescriptions found for user:', userId);
+        setPrescriptions([]);
+      }
+    } catch (error) {
+      console.error("Error fetching prescriptions:", error);
+      setPrescriptions([]);
     }
   };
 
@@ -229,6 +288,9 @@ const MyProfile = () => {
         
         // Fetch medical records
         fetchMedicalRecords(user.uid);
+        
+        // Fetch prescriptions
+        fetchPrescriptions(user.uid);
         
       } else {
         setIsAuthenticated(false);
@@ -350,6 +412,117 @@ const MyProfile = () => {
     }
   };
 
+  // Ensure the viewDoctorDetails function is defined
+  const viewDoctorDetails = (doctorId) => {
+    const doctor = doctors[doctorId];
+    if (doctor) {
+      setSelectedDoctor({
+        name: doctor.fullName,
+        phone: doctor.phone,
+        email: doctor.email,
+      });
+    } else {
+      setSelectedDoctor(null);
+    }
+  };
+
+  // Updated filtering logic for upcoming and history tabs
+  const updatedAppointments = appointments.map(a => {
+    const appointmentDateTime = new Date(`${a.date} ${a.time}`);
+    const currentDateTime = new Date();
+    const updatedStatus = currentDateTime > appointmentDateTime ? 'completed' : a.status;
+    return { ...a, status: updatedStatus };
+  });
+
+  const upcomingAppointments = updatedAppointments.filter(a => new Date(`${a.date} ${a.time}`) > new Date());
+  const historyAppointments = updatedAppointments.filter(a => new Date(`${a.date} ${a.time}`) <= new Date());
+
+  // Update summary statistics to use filtered arrays
+  const completedCount = historyAppointments.filter(a => a.status === 'completed').length;
+  const cancelledCount = historyAppointments.filter(a => a.status === 'cancelled').length;
+  const totalCount = historyAppointments.length;
+
+  // Handle appointment cancellation
+  const handleCancelAppointment = async () => {
+    if (!appointmentToCancel) return;
+
+    setLoading(true);
+    try {
+      // Update appointment status in database
+      const appointmentRef = ref(db, `appointments/${appointmentToCancel.id}`);
+      await update(appointmentRef, {
+        status: 'cancelled',
+        cancellationDate: new Date().toISOString(),
+        cancelledBy: 'patient'
+      });
+
+      // Update local state
+      setAppointments(prev => 
+        prev.map(apt => 
+          apt.id === appointmentToCancel.id 
+            ? { ...apt, status: 'cancelled', cancellationDate: new Date().toISOString() }
+            : apt
+        )
+      );
+
+      // Get doctor information for email notification
+      let doctorEmail = null;
+      if (appointmentToCancel.doctorId) {
+        try {
+          const doctorRef = ref(db, `users/${appointmentToCancel.doctorId}`);
+          const doctorSnapshot = await get(doctorRef);
+          if (doctorSnapshot.exists()) {
+            doctorEmail = doctorSnapshot.val().email;
+          }
+        } catch (error) {
+          console.error('Error fetching doctor details:', error);
+        }
+      }
+
+      // Send email notifications
+      try {
+        await sendAppointmentCancellationEmails({
+          patientName: profile.fullName || 'Patient',
+          patientEmail: profile.email,
+          doctorEmail: doctorEmail,
+          date: appointmentToCancel.date,
+          time: appointmentToCancel.time,
+          appointmentId: appointmentToCancel.id,
+          doctorName: appointmentToCancel.doctorName,
+          consultationType: appointmentToCancel.consultationType,
+          cancellationReason: 'Cancelled by patient'
+        });
+      } catch (emailError) {
+        console.error('Error sending cancellation emails:', emailError);
+        // Don't fail the cancellation if email fails
+      }
+
+      setShowCancelDialog(false);
+      setAppointmentToCancel(null);
+
+      toast.toast({
+        title: "Appointment Cancelled",
+        description: "Your appointment has been successfully cancelled. Notifications have been sent to the doctor and admin.",
+        variant: "default",
+      });
+
+    } catch (error) {
+      console.error("Error cancelling appointment:", error);
+      toast.toast({
+        title: "Error",
+        description: "Failed to cancel appointment. Please try again or contact support.",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const initiateCancelAppointment = (appointment) => {
+    setAppointmentToCancel(appointment);
+    setShowCancelDialog(true);
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-[#f7fafd] pt-24 flex items-center justify-center">
@@ -418,9 +591,9 @@ const MyProfile = () => {
           {/* Tab Content */}
           <div className="bg-white rounded-xl shadow-sm p-6">
             {activeTab === "appointments" && (
-              <>
+              <div>
                 <h2 className="text-xl font-semibold mb-4 text-[#1164A8]">
-                  Current Appointments
+                  Upcoming Appointments
                 </h2>
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
@@ -447,16 +620,14 @@ const MyProfile = () => {
                       </tr>
                     </thead>
                     <tbody>
-                      {appointments
-                        .filter(a => a.status === 'pending' || a.status === 'confirmed')
-                        .map((a) => (
+                      {upcomingAppointments.map(a => (
                         <tr key={a.id} className="border-b">
                           <td className="px-4 py-4">
                             <div className="font-medium text-gray-900">
-                              {a.doctorName || 'Doctor Assignment Pending'}
+                              {a.doctorName || "Doctor Assignment Pending"}
                             </div>
                             <div className="text-sm text-gray-500">
-                              {a.specialization || a.consultationType || 'General Consultation'}
+                              {a.specialization || a.consultationType || "General Consultation"}
                             </div>
                           </td>
                           <td className="px-4 py-4">
@@ -464,39 +635,24 @@ const MyProfile = () => {
                             <div className="text-sm text-gray-500">{a.time}</div>
                           </td>
                           <td className="px-4 py-4">
-                            <span className="capitalize">{a.consultationType || 'Virtual'}</span>
+                            <span className="capitalize">{a.consultationType || "Virtual"}</span>
                           </td>
                           <td className="px-4 py-4">
-                            <span
-                              className={`px-2 py-1 rounded-full text-xs ${
-                                statusColors[a.status] ||
-                                "bg-gray-100 text-gray-700"
-                              }`}
-                            >
-                              {a.status}
-                            </span>
+                            <span className={`px-2 py-1 rounded-full text-xs ${statusColors[a.status] || "bg-gray-100 text-gray-700"}`}>{a.status}</span>
                           </td>
-                          <td className="px-4 py-4">
-                            {a.paymentAmount ? `₹${a.paymentAmount}` : 'N/A'}
-                          </td>
+                          <td className="px-4 py-4">{a.paymentAmount ? `₹${a.paymentAmount}` : "N/A"}</td>
                           <td className="px-4 py-4">
                             <div className="flex gap-2">
                               <button 
                                 className="text-[#1164A8] hover:underline text-sm"
-                                onClick={() => {
-                                  // You can add view details functionality here
-                                  console.log('View appointment:', a);
-                                }}
+                                onClick={() => viewDoctorDetails(a.doctorId)}
                               >
                                 View
                               </button>
-                              {a.status === 'pending' && (
+                              {(a.status === 'confirmed' || a.status === 'pending') && (
                                 <button 
                                   className="text-red-600 hover:underline text-sm"
-                                  onClick={() => {
-                                    // Add cancel functionality here
-                                    console.log('Cancel appointment:', a);
-                                  }}
+                                  onClick={() => initiateCancelAppointment(a)}
                                 >
                                   Cancel
                                 </button>
@@ -505,20 +661,20 @@ const MyProfile = () => {
                           </td>
                         </tr>
                       ))}
-                      {appointments.filter(a => a.status === 'pending' || a.status === 'confirmed').length === 0 && (
+                      {upcomingAppointments.length === 0 && (
                         <tr>
                           <td
                             colSpan={6}
                             className="px-4 py-4 text-center text-gray-500"
                           >
-                            No current appointments found.
+                            No upcoming appointments found.
                           </td>
                         </tr>
                       )}
                     </tbody>
                   </table>
                 </div>
-              </>
+              </div>
             )}
 
             {activeTab === "medical" && (
@@ -543,13 +699,23 @@ const MyProfile = () => {
                       if (e.target.files && e.target.files.length > 0) {
                         try {
                           const file = e.target.files[0];
-                          const fileRef = storageRef(storage, `users/${userId}/medicalRecords/${file.name}`);
-                          
-                          // Upload the file
-                          await uploadBytes(fileRef, file);
-                          
-                          // Get the download URL
-                          const url = await getDownloadURL(fileRef);
+                          const fileRefMedical = storageRef(storage, `users/${userId}/medicalRecords/${file.name}`);
+                          const fileRefReport = storageRef(storage, `users/${userId}/reports/${file.name}`);
+
+                          // Upload to medicalRecords
+                          await uploadBytes(fileRefMedical, file);
+                          // Upload to reports with metadata
+                          await uploadBytes(fileRefReport, file, {
+                            customMetadata: {
+                              userName: profile.fullName || '',
+                              userEmail: profile.email || '',
+                              category: 'document',
+                              originalName: file.name
+                            }
+                          });
+
+                          // Get the download URL (from medicalRecords for patient view)
+                          const url = await getDownloadURL(fileRefMedical);
                           
                           // Update state with the new record
                           setMedicalRecords([...medicalRecords, {
@@ -586,7 +752,7 @@ const MyProfile = () => {
                           {record.type?.includes('pdf') || record.name.endsWith('.pdf') ? (
                             <FaFilePdf className="text-red-500 text-xl" />
                           ) : (
-                            <FaFileImage className="text-blue-500 text-xl" />
+                                                        <FaFileImage className="text-blue-500 text-xl" />
                           )}
                           <div>
                             <div className="font-medium truncate">{record.name}</div>
@@ -991,7 +1157,7 @@ const MyProfile = () => {
             )}
 
             {activeTab === "history" && (
-              <>
+              <div>
                 <h2 className="text-xl font-semibold mb-4 text-[#1164A8]">
                   Appointment History
                 </h2>
@@ -1014,28 +1180,17 @@ const MyProfile = () => {
                         <th className="px-4 py-3 text-left font-medium text-gray-700">
                           Amount
                         </th>
-                        <th className="px-4 py-3 text-left font-medium text-gray-700">
-                          Action
-                        </th>
                       </tr>
                     </thead>
                     <tbody>
-                      {appointments
-                        .filter(a => a.status === 'completed' || a.status === 'cancelled')
-                        .sort((a, b) => {
-                          // Sort by most recent first
-                          const dateA = new Date(`${a.date} ${a.time}`);
-                          const dateB = new Date(`${b.date} ${b.time}`);
-                          return dateB.getTime() - dateA.getTime();
-                        })
-                        .map((a) => (
+                      {historyAppointments.map(a => (
                         <tr key={a.id} className="border-b">
                           <td className="px-4 py-4">
                             <div className="font-medium text-gray-900">
-                              {a.doctorName || 'Doctor Not Assigned'}
+                              {a.doctorName || "Doctor Assignment Pending"}
                             </div>
                             <div className="text-sm text-gray-500">
-                              {a.specialization || a.consultationType || 'General Consultation'}
+                              {a.specialization || a.consultationType || "General Consultation"}
                             </div>
                           </td>
                           <td className="px-4 py-4">
@@ -1043,53 +1198,17 @@ const MyProfile = () => {
                             <div className="text-sm text-gray-500">{a.time}</div>
                           </td>
                           <td className="px-4 py-4">
-                            <span className="capitalize">{a.consultationType || 'Virtual'}</span>
+                            <span className="capitalize">{a.consultationType || "Virtual"}</span>
                           </td>
                           <td className="px-4 py-4">
-                            <span
-                              className={`px-2 py-1 rounded-full text-xs ${
-                                statusColors[a.status] ||
-                                "bg-gray-100 text-gray-700"
-                              }`}
-                            >
-                              {a.status}
-                            </span>
+                            <span className={`px-2 py-1 rounded-full text-xs ${statusColors[a.status] || "bg-gray-100 text-gray-700"}`}>{a.status}</span>
                           </td>
-                          <td className="px-4 py-4">
-                            {a.paymentAmount ? `₹${a.paymentAmount}` : 'N/A'}
-                          </td>
-                          <td className="px-4 py-4">
-                            <div className="flex gap-2">
-                              <button 
-                                className="text-[#1164A8] hover:underline text-sm"
-                                onClick={() => {
-                                  // You can add view details functionality here
-                                  console.log('View appointment details:', a);
-                                }}
-                              >
-                                View
-                              </button>
-                              {a.status === 'completed' && (
-                                <button 
-                                  className="text-green-600 hover:underline text-sm"
-                                  onClick={() => {
-                                    // Add download prescription/report functionality here
-                                    console.log('Download report:', a);
-                                  }}
-                                >
-                                  Report
-                                </button>
-                              )}
-                            </div>
-                          </td>
+                          <td className="px-4 py-4">{a.paymentAmount ? `₹${a.paymentAmount}` : "N/A"}</td>
                         </tr>
                       ))}
-                      {appointments.filter(a => a.status === 'completed' || a.status === 'cancelled').length === 0 && (
+                      {historyAppointments.length === 0 && (
                         <tr>
-                          <td
-                            colSpan={6}
-                            className="px-4 py-4 text-center text-gray-500"
-                          >
+                          <td colSpan={5} className="px-4 py-4 text-center text-gray-500">
                             No appointment history found.
                           </td>
                         </tr>
@@ -1105,7 +1224,7 @@ const MyProfile = () => {
                       Completed Appointments
                     </div>
                     <div className="text-2xl font-bold text-green-600">
-                      {appointments.filter(a => a.status === 'completed').length}
+                      {completedCount}
                     </div>
                   </div>
                   
@@ -1114,7 +1233,7 @@ const MyProfile = () => {
                       Cancelled Appointments
                     </div>
                     <div className="text-2xl font-bold text-red-600">
-                      {appointments.filter(a => a.status === 'cancelled').length}
+                      {cancelledCount}
                     </div>
                   </div>
                   
@@ -1123,20 +1242,120 @@ const MyProfile = () => {
                       Total Appointments
                     </div>
                     <div className="text-2xl font-bold text-blue-600">
-                      {appointments.length}
+                      {totalCount}
                     </div>
                   </div>
                 </div>
-              </>
+              </div>
             )}
             {activeTab === "prescriptions" && (
-              <div className="text-gray-500">
-                Prescriptions coming soon...
+              <div>
+                <h2 className="text-xl font-semibold mb-4 text-[#1164A8]">Prescriptions</h2>
+                {prescriptions.length > 0 ? (
+                  <div className="space-y-4">
+                    {prescriptions.map((prescription, index) => {
+                      const doctor = doctors[prescription.doctorId] || {};
+                      const appointment = appointments.find(a => a.id === prescription.appointmentId);
+                      
+                      return (
+                        <div key={index} className="border rounded-lg p-4">
+                          <div className="flex justify-between items-start mb-2">
+                            <div>
+                              <h3 className="font-medium">{prescription.medicine}</h3>
+                              {(prescription.doctorName || doctor.fullName) && (
+                                <p className="text-sm text-gray-600">
+                                  Prescribed by {prescription.doctorName || doctor.fullName}
+                                  {doctor.specialization && ` (${doctor.specialization})`}
+                                </p>
+                              )}
+                            </div>
+                            <span className="text-xs text-gray-500">
+                              {new Date(prescription.createdAt).toLocaleDateString()}
+                            </span>
+                          </div>
+                          
+                          {appointment && (
+                            <div className="text-sm text-gray-500">
+                              <p>From appointment on {appointment.date} at {appointment.time}</p>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="text-center py-8 bg-gray-50 rounded-xl">
+                    <div className="mb-4">
+                      <FaPills className="w-12 h-12 text-gray-400 mx-auto" />
+                    </div>
+                    <h3 className="text-lg font-medium text-gray-700 mb-2">No prescriptions yet</h3>
+                    <p className="text-gray-500 max-w-md mx-auto">
+                      Your prescriptions from doctors will appear here.
+                    </p>
+                  </div>
+                )}
               </div>
             )}
           </div>
         </main>
       </div>
+
+      {/* Doctor Details Modal */}
+      {selectedDoctor && (
+        <div className="fixed inset-0 bg-gray-800 bg-opacity-50 flex items-center justify-center">
+          <div className="bg-white rounded-lg shadow-lg p-6 w-96">
+            <h2 className="text-xl font-semibold mb-4 text-[#1164A8]">Doctor Details</h2>
+            <p><strong>Name:</strong> {selectedDoctor.name}</p>
+            <p><strong>Phone:</strong> {selectedDoctor.phone}</p>
+            <p><strong>Email:</strong> {selectedDoctor.email}</p>
+            <button
+              className="mt-4 px-4 py-2 bg-[#1164A8] text-white rounded hover:bg-[#0e5395]"
+              onClick={() => setSelectedDoctor(null)}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Cancel Appointment Confirmation Dialog */}
+      {showCancelDialog && appointmentToCancel && (
+        <div className="fixed inset-0 bg-gray-800 bg-opacity-50 flex items-center justify-center">
+          <div className="bg-white rounded-lg shadow-lg p-6 max-w-md w-full">
+            <h2 className="text-lg font-semibold mb-4 text-red-600">
+              Cancel Appointment
+            </h2>
+            <p className="text-gray-700 mb-4">
+              Are you sure you want to cancel the appointment with Dr. {appointmentToCancel.doctorName} on {appointmentToCancel.date} at {appointmentToCancel.time}?
+            </p>
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-4">
+              <p className="text-yellow-800 text-sm">
+                <strong>Note:</strong> If you have made a payment, the refund will be processed within 3-5 business days. The doctor and admin will be notified of this cancellation.
+              </p>
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setShowCancelDialog(false)}
+                className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 flex items-center gap-2"
+              >
+                <FaTimes /> No, go back
+              </button>
+              <button
+                onClick={handleCancelAppointment}
+                className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 flex items-center gap-2"
+                disabled={loading}
+              >
+                {loading ? (
+                  <span className="inline-block animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white"></span>
+                ) : (
+                  <FaCheck />
+                )}
+                Yes, cancel it
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

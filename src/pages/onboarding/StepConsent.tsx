@@ -213,7 +213,7 @@ const StepConsent = ({
         {!hideNext && (
           <button
             type="submit"
-            className="bg-[#0e5d9f] text-white px-6 py-2 rounded font-bold"
+            className="bg-[#0e5d9f] text-white px-6 py-2 rounded font-bold hover:bg-blue-700"
           >
             Next
           </button>

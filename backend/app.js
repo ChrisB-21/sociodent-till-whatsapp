@@ -4,6 +4,7 @@ import cors from 'cors';
 import razorpayRoutes from './routes/razorpay.js';
 import admin from 'firebase-admin';
 import emailRoutes from './routes/email.js';
+import whatsappRoutes from './routes/whatsapp.js';
 
 const app = express();
 
@@ -64,6 +65,7 @@ app.use(express.json());
 // Routes
 app.use('/api/razorpay', razorpayRoutes);
 app.use('/api/email', emailRoutes);
+app.use('/api/whatsapp', whatsappRoutes);
 
 // Status endpoint for connectivity checking
 app.get('/api/status', (req, res) => {

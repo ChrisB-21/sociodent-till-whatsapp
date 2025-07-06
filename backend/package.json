@@ -1,0 +1,20 @@
+{
+  "name": "sociodent-backend",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "SocioDent backend server for email and payment processing",
+  "main": "combined-server.js",
+  "scripts": {
+    "start": "node combined-server.js",
+    "dev": "node combined-server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.0.3",
+    "express": "^4.18.2",
+    "firebase-admin": "^11.0.0",
+    "node-fetch": "^3.3.2",
+    "nodemailer": "^6.9.1",
+    "razorpay": "^2.9.2"
+  }
+}

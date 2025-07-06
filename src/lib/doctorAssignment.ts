@@ -868,6 +868,25 @@ const updateManualAssignment = async (
       appointment.time
     )
   ]);
+
+  // Send email notification to doctor
+  try {
+    const { sendDoctorAssignmentNotificationToDoctor } = await import('../services/emailService');
+    if (doctorData.email) {
+      await sendDoctorAssignmentNotificationToDoctor(
+        doctorName,
+        doctorData.email,
+        appointment.userName,
+        appointment.userEmail,
+        appointment.date,
+        appointment.time,
+        appointment.consultationType,
+        appointment.id
+      );
+    }
+  } catch (emailError) {
+    console.error('Error sending doctor assignment email notification:', emailError);
+  }
 };
 
 /**

@@ -3,6 +3,8 @@ import cors from 'cors';
 import Razorpay from 'razorpay';
 import crypto from 'crypto';
 import admin from 'firebase-admin';
+import emailRoutes from './routes/email.js';
+import whatsappRoutes from './routes/whatsapp.js';
 import 'dotenv/config';
 
 const app = express();
@@ -45,7 +47,7 @@ try {
 
 // Configure CORS
 app.use(cors({
-  origin: ['http://localhost:8081', 'http://localhost:8082', 'http://localhost:3000', 'https://sociodent-smile-database.web.app', '*'],
+  origin: ['http://localhost:8081', 'http://localhost:8082', 'http://localhost:8084', 'http://localhost:3000', 'https://sociodent-smile-database.web.app', '*'],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'Origin', 'Accept', 'X-Requested-With'],
   credentials: true,
@@ -53,6 +55,10 @@ app.use(cors({
 }));
 
 app.use(express.json());
+
+// Register routes
+app.use('/api/email', emailRoutes);
+app.use('/api/whatsapp', whatsappRoutes);
 
 // Initialize Razorpay
 let razorpay = null;
@@ -182,7 +188,7 @@ app.use((err, req, res, next) => {
   res.status(500).json({ message: 'Something broke!' });
 });
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3001;
 
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);

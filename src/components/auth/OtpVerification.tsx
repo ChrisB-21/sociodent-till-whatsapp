@@ -152,6 +152,12 @@ const OtpVerification: React.FC<OtpVerificationProps> = ({
         errorMessage = "reCAPTCHA verification failed. Please try again.";
       } else if (error.code === 'auth/quota-exceeded') {
         errorMessage = "Verification quota exceeded. Please try again tomorrow.";
+      } else if (error.code === 'auth/network-request-failed') {
+        errorMessage = "Network error. Please check your internet connection and try again.";
+      } else if (error.code === 'auth/timeout') {
+        errorMessage = "Request timed out. Please check your internet connection and try again.";
+      } else if (error.message && error.message.includes('network')) {
+        errorMessage = "Network connection error. Please check your internet connection and try again.";
       } else if (error.message) {
         errorMessage = error.message;
       }

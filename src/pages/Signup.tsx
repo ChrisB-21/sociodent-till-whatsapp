@@ -1,8 +1,15 @@
 import React, { useState } from "react";
+import { createUserWithEmailAndPassword } from "firebase/auth";
+import { ref, set } from "firebase/database";
+import { auth, db } from "@/firebase";
+import WhatsAppWelcomeService from "@/services/whatsappWelcomeService";
 
 const Signup: React.FC = () => {
   const [role, setRole] = useState<"user" | "doctor" | "admin">("user");
   const [tab, setTab] = useState<"email" | "phone">("email");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [successMessage, setSuccessMessage] = useState("");
+  const [errorMessage, setErrorMessage] = useState("");
 
   // Example credential state (expand as needed)
   const [form, setForm] = useState({
@@ -42,10 +49,118 @@ const Signup: React.FC = () => {
     });
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Add your signup logic here
-    alert(`Signed up as ${role}`);
+    setIsSubmitting(true);
+    setErrorMessage("");
+    setSuccessMessage("");
+
+    try {
+      // Validate form data
+      if (!form.name.trim() || !form.password.trim()) {
+        throw new Error("Name and password are required");
+      }
+
+      if (tab === "email" && !form.email.trim()) {
+        throw new Error("Email is required");
+      }
+
+      if (tab === "phone" && !form.phone.trim()) {
+        throw new Error("Phone number is required");
+      }
+
+      if (form.captchaInput !== form.captcha) {
+        throw new Error("Captcha verification failed");
+      }
+
+      if (role === "doctor" && !form.license.trim()) {
+        throw new Error("Medical license number is required for doctors");
+      }
+
+      if (role === "admin" && !form.adminCode.trim()) {
+        throw new Error("Admin code is required");
+      }
+
+      // Create Firebase Auth account
+      const email = tab === "email" ? form.email : `${form.phone}@temp.com`;
+      const userCredential = await createUserWithEmailAndPassword(auth, email, form.password);
+      const user = userCredential.user;
+
+      // Prepare user data for database
+      const userData = {
+        uid: user.uid,
+        name: form.name,
+        email: tab === "email" ? form.email : "",
+        phone: tab === "phone" ? form.phone : "",
+        role: role,
+        city: form.city,
+        state: form.state,
+        area: form.area,
+        pincode: form.pincode,
+        registeredAt: new Date().toISOString(),
+        status: role === "doctor" ? "pending" : "active",
+        ...(role === "doctor" && { licenseNumber: form.license }),
+        ...(role === "admin" && { adminCode: form.adminCode }),
+      };
+
+      // Save to Firebase Database
+      const userRef = ref(db, `users/${user.uid}`);
+      await set(userRef, userData);
+
+      // Send WhatsApp welcome message
+      try {
+        const phoneNumber = tab === "phone" ? form.phone : ""; // Use phone if available
+        if (phoneNumber) {
+          const whatsAppResult = await WhatsAppWelcomeService.sendUserWelcomeMessage({
+            name: form.name,
+            phone: phoneNumber,
+            role: role as "user" | "doctor"
+          });
+
+          if (whatsAppResult.success) {
+            console.log("WhatsApp welcome message sent successfully");
+          } else {
+            console.warn("WhatsApp message failed:", whatsAppResult.error);
+          }
+        }
+      } catch (whatsAppError) {
+        console.error("WhatsApp service error:", whatsAppError);
+        // Don't fail registration if WhatsApp fails
+      }
+
+      // Set success message based on role
+      if (role === "doctor") {
+        setSuccessMessage(
+          "Doctor registration submitted successfully! Your application is under review and you'll be notified once approved."
+        );
+      } else {
+        setSuccessMessage(
+          `Account created successfully! Welcome to SocioDent, ${form.name}!`
+        );
+      }
+
+      // Reset form
+      setForm({
+        name: "",
+        email: "",
+        password: "",
+        phone: "",
+        license: "",
+        adminCode: "",
+        captcha: "KKHX5T",
+        captchaInput: "",
+        city: "",
+        state: "",
+        area: "",
+        pincode: "",
+      });
+
+    } catch (error: any) {
+      console.error("Signup error:", error);
+      setErrorMessage(error.message || "Registration failed. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -54,6 +169,21 @@ const Signup: React.FC = () => {
         <img src="/logo.png" alt="SocioDent" className="h-10" />
       </div>
       <h2 className="text-xl font-bold text-center mb-2">Create Account</h2>
+      
+      {/* Success Message */}
+      {successMessage && (
+        <div className="mb-4 p-3 bg-green-100 border border-green-400 text-green-700 rounded">
+          {successMessage}
+        </div>
+      )}
+      
+      {/* Error Message */}
+      {errorMessage && (
+        <div className="mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded">
+          {errorMessage}
+        </div>
+      )}
+      
       <div className="flex justify-center mb-4">
         <button
           className={`px-4 py-2 rounded-l ${role === "user" ? "bg-blue-100 font-bold" : "bg-gray-100"}`}
@@ -252,13 +382,21 @@ const Signup: React.FC = () => {
         </div>
         <button
           type="submit"
-          className="w-full mt-4 py-2 rounded bg-red-400 text-white font-bold text-lg"
+          disabled={isSubmitting}
+          className={`w-full mt-4 py-2 rounded font-bold text-lg ${
+            isSubmitting 
+              ? "bg-gray-400 text-gray-700 cursor-not-allowed" 
+              : "bg-red-400 text-white hover:bg-red-500"
+          }`}
         >
-          {role === "user"
+          {isSubmitting 
+            ? "Creating Account..." 
+            : role === "user"
             ? "Sign Up as User"
             : role === "doctor"
             ? "Sign Up as Doctor"
-            : "Sign Up as Admin"}
+            : "Sign Up as Admin"
+          }
         </button>
       </form>
     </div>

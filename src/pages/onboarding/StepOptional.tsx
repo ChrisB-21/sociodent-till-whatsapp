@@ -27,6 +27,11 @@ const StepOptional: React.FC<StepOptionalProps> = ({
   onSubmit,
   isSubmitting = false
 }) => {
+  const handleSkipAndFinish = () => {
+    // Skip file uploads and proceed to finish registration
+    onSubmit();
+  };
+
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>, field: keyof FileData) => {
     const file = event.target.files?.[0];
     if (file) {

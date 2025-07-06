@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
+import { FaUserMd } from 'react-icons/fa';
 import { useNavigate } from 'react-router-dom';
 import { Users, BarChart, Settings, FileText, Check, X,
-BadgeHelp, Search, ChevronDown, ChevronUp, Clock, Calendar, CheckCircle, XCircle } from
+BadgeHelp, Search, ChevronDown, ChevronUp, Clock, Calendar, CheckCircle, XCircle, Building } from
 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
@@ -115,16 +116,39 @@ value: string;
 change: string;
 changeType: 'positive' | 'negative';
 };
+type OrganizationBooking = {
+  id: string;
+  contactPersonName: string;
+  organizationName: string;
+  organizationType: string;
+  designation: string;
+  contactPhone: string;
+  contactEmail: string;
+  state: string;
+  city: string;
+  numberOfBeneficiaries: string;
+  preferredDate: string;
+  preferredTime: string;
+  requirement: string;
+  additionalNotes: string;
+  submittedAt: string;
+  status: 'pending' | 'contacted' | 'scheduled' | 'completed' | 'cancelled';
+  adminNotes?: string;
+  scheduledDate?: string;
+  scheduledTime?: string;
+  assignedDoctor?: string;
+};
 const AdminPortal = () => {
 const [isAuthenticated, setIsAuthenticated] = useState(false);
 const [userRole, setUserRole] = useState('');
-type TabType = 'dashboard' | 'users' | 'doctors' | 'schedules' | 'appointments' | 'verifications' | 'reports' | 'settings';
+type TabType = 'dashboard' | 'users' | 'doctors' | 'schedules' | 'appointments' | 'organizations' | 'verifications' | 'reports' | 'settings';
 const [activeTab, setActiveTab] = useState<TabType>('dashboard');
 const [users, setUsers] = useState<User[]>([]);
 const [filteredUsers, setFilteredUsers] = useState<User[]>([]);
 const [verificationRequests, setVerificationRequests] = useState<DoctorVerification[]>([]);
 const [doctorSchedules, setDoctorSchedules] = useState<DoctorSchedule[]>([]);
 const [appointments, setAppointments] = useState<Appointment[]>([]);
+const [organizationBookings, setOrganizationBookings] = useState<OrganizationBooking[]>([]);
 const [searchTerm, setSearchTerm] = useState('');
 const [sortConfig, setSortConfig] = useState<{ key: keyof User; direction: 'ascending' |
 'descending' } | null>(null);
@@ -148,6 +172,8 @@ slotDuration: 30,
 });
 const [showScheduleForm, setShowScheduleForm] = useState(false);
 const [editingScheduleId, setEditingScheduleId] = useState<string | null>(null);
+const [completeConfirm, setCompleteConfirm] = useState<{ show: boolean, appointmentId: string } | null>(null);
+const [deleteConfirm, setDeleteConfirm] = useState<{ show: boolean, userId: string, userName: string, userEmail: string } | null>(null);
 const navigate = useNavigate();
 const { toast } = useToast();
 // Check authentication and role
@@ -310,6 +336,42 @@ setAppointments(appointmentsArray);
 setAppointments([]);
 }
 });
+
+// Fetch organization bookings
+const organizationBookingsRef = dbRef(db, 'organizationBookings');
+onValue(organizationBookingsRef, (snapshot) => {
+const data = snapshot.val();
+if (data) {
+const organizationBookingsArray = Object.keys(data).map(key => {
+const booking = data[key];
+return {
+id: key,
+contactPersonName: booking.contactPersonName ?? "N/A",
+organizationName: booking.organizationName ?? "N/A", 
+organizationType: booking.organizationType ?? "N/A",
+designation: booking.designation ?? "N/A",
+contactPhone: booking.contactPhone ?? "N/A",
+contactEmail: booking.contactEmail ?? "N/A",
+state: booking.state ?? "N/A",
+city: booking.city ?? "N/A",
+numberOfBeneficiaries: booking.numberOfBeneficiaries ?? "N/A",
+preferredDate: booking.preferredDate ?? "N/A",
+preferredTime: booking.preferredTime ?? "N/A",
+requirement: booking.requirement ?? "N/A",
+additionalNotes: booking.additionalNotes ?? "",
+submittedAt: booking.submittedAt ?? "N/A",
+status: booking.status ?? "pending",
+adminNotes: booking.adminNotes,
+scheduledDate: booking.scheduledDate,
+scheduledTime: booking.scheduledTime,
+assignedDoctor: booking.assignedDoctor
+};
+});
+setOrganizationBookings(organizationBookingsArray);
+} else {
+setOrganizationBookings([]);
+}
+});
 }
 }, [isAuthenticated, userRole]);
 
@@ -356,10 +418,46 @@ size={14} />;
 const updateUserStatus = async (userId: string, newStatus: string) => {
   try {
     const userRef = dbRef(db, `users/${userId}`);
+    
+    // Get user data first to send email
+    const userSnapshot = await get(userRef);
+    const userData = userSnapshot.val();
+    
     await update(userRef, {
       status: newStatus,
       updatedAt: Date.now()
     });
+    
+    // Send email notification for doctor approval/rejection
+    if (userData && userData.role === 'doctor' && (newStatus === 'approved' || newStatus === 'rejected')) {
+      try {
+        const { sendDoctorApprovalStatusEmail } = await import('../services/emailService');
+        const emailSent = await sendDoctorApprovalStatusEmail({
+          email: userData.email,
+          name: userData.fullName || userData.name,
+          approved: newStatus === 'approved',
+          rejectionReason: newStatus === 'rejected' ? 'Please ensure all required documents are properly submitted and meet our standards.' : undefined
+        });
+        
+        if (emailSent) {
+          console.log(`Doctor ${newStatus} email sent successfully to ${userData.email}`);
+        } else {
+          console.error(`Failed to send doctor ${newStatus} email to ${userData.email}`);
+          toast({
+            title: "Email Notification Failed",
+            description: `Doctor status updated but email notification failed. Please contact ${userData.email} manually.`,
+            variant: "destructive"
+          });
+        }
+      } catch (emailError) {
+        console.error(`Error sending doctor ${newStatus} email:`, emailError);
+        toast({
+          title: "Email System Error",
+          description: `Doctor status updated but email system is unavailable. Please contact ${userData.email} manually.`,
+          variant: "destructive"
+        });
+      }
+    }
     
     // Also update local state to reflect changes immediately
     setUsers(prevUsers => 
@@ -372,7 +470,7 @@ const updateUserStatus = async (userId: string, newStatus: string) => {
     
     toast({
       title: "Status Updated",
-      description: `Doctor status has been updated to ${newStatus}. The doctor will see the changes on their next login or when they refresh.`,
+      description: `Doctor status has been updated to ${newStatus}. ${userData?.role === 'doctor' ? 'Email notification has been sent to the doctor.' : 'The user will see the changes on their next login.'}`,
     });
   } catch (error) {
     console.error("Error updating user status:", error);
@@ -382,6 +480,76 @@ const updateUserStatus = async (userId: string, newStatus: string) => {
       variant: "destructive"
     });
   }
+};
+
+// Delete user permanently
+const deleteUserPermanently = async (userId: string) => {
+  try {
+    // Get user data first for confirmation
+    const userRef = dbRef(db, `users/${userId}`);
+    const userSnapshot = await get(userRef);
+    const userData = userSnapshot.val();
+    
+    // Delete user from database
+    await remove(userRef);
+    
+    // Also delete any related data (appointments, schedules, etc.)
+    const appointmentsRef = dbRef(db, 'appointments');
+    const appointmentsSnapshot = await get(appointmentsRef);
+    if (appointmentsSnapshot.exists()) {
+      const appointments = appointmentsSnapshot.val();
+      Object.keys(appointments).forEach(async (appointmentId) => {
+        const appointment = appointments[appointmentId];
+        if (appointment.userId === userId || appointment.doctorId === userId) {
+          await remove(dbRef(db, `appointments/${appointmentId}`));
+        }
+      });
+    }
+    
+    // Delete doctor schedules if user is a doctor
+    if (userData?.role === 'doctor') {
+      const schedulesRef = dbRef(db, 'doctorSchedules');
+      const schedulesSnapshot = await get(schedulesRef);
+      if (schedulesSnapshot.exists()) {
+        const schedules = schedulesSnapshot.val();
+        Object.keys(schedules).forEach(async (scheduleId) => {
+          const schedule = schedules[scheduleId];
+          if (schedule.doctorId === userId) {
+            await remove(dbRef(db, `doctorSchedules/${scheduleId}`));
+          }
+        });
+      }
+    }
+    
+    // Update local state to remove the user immediately
+    setUsers(prevUsers => prevUsers.filter(user => user.id !== userId));
+    setFilteredUsers(prevFiltered => prevFiltered.filter(user => user.id !== userId));
+    
+    // Close confirmation dialog
+    setDeleteConfirm(null);
+    
+    toast({
+      title: "User Deleted",
+      description: `User account and all associated data have been permanently deleted.`,
+    });
+  } catch (error) {
+    console.error("Error deleting user:", error);
+    toast({
+      title: "Error",
+      description: "Failed to delete user account",
+      variant: "destructive"
+    });
+  }
+};
+
+// Handle delete confirmation
+const handleDeleteUser = (user: User) => {
+  setDeleteConfirm({
+    show: true,
+    userId: user.id,
+    userName: user.name,
+    userEmail: user.email
+  });
 };
 // Update appointment status and ensure patient profile reflects changes
 const updateAppointmentStatus = async (appointmentId: string, newStatus: 'pending' | 'confirmed' | 'completed' | 'cancelled') => {
@@ -668,13 +836,16 @@ const tabs = [
 , icon: <Users className="w-5 h-5 mr-2" /> },
 { id: 'doctors'
 , name: 'Doctors'
-, icon: <BadgeHelp className="w-5 h-5 mr-2" /> },
+, icon: <FaUserMd className="w-5 h-5 mr-2" /> },
 { id: 'schedules'
 , name: 'Doctor Schedules'
 , icon: <Calendar className="w-5 h-5 mr-2" /> },
 { id: 'appointments'
 , name: 'Appointments'
 , icon: <Clock className="w-5 h-5 mr-2" /> },
+{ id: 'organizations'
+, name: 'Organization Bookings'
+, icon: <Building className="w-5 h-5 mr-2" /> },
 { id: 'verifications'
 , name: 'Doctor Verifications'
 , icon: <FileText className="w-5 h-5 mr-2" /> },
@@ -698,7 +869,17 @@ const handleAssignDoctor = async (appointmentId: string, doctorId: string) => {
   const doctor = users.find(u => u.id === doctorId);
   if (!doctor) return;
   try {
+    // Get appointment details first
     const appointmentRef = dbRef(db, `appointments/${appointmentId}`);
+    const appointmentSnapshot = await get(appointmentRef);
+    
+    if (!appointmentSnapshot.exists()) {
+      throw new Error('Appointment not found');
+    }
+    
+    const appointmentData = appointmentSnapshot.val();
+    
+    // Update appointment with doctor assignment
     await update(appointmentRef, {
       doctorId: doctor.id,
       doctorName: doctor.name,
@@ -706,12 +887,35 @@ const handleAssignDoctor = async (appointmentId: string, doctorId: string) => {
       status: 'confirmed',
       updatedAt: Date.now(),
     });
+    
+    // Send email notification to the assigned doctor
+    try {
+      const { sendDoctorAssignmentNotificationToDoctor } = await import('../services/emailService');
+      if (doctor.email) {
+        await sendDoctorAssignmentNotificationToDoctor(
+          doctor.name,
+          doctor.email,
+          appointmentData.userName,
+          appointmentData.userEmail || '',
+          appointmentData.date,
+          appointmentData.time,
+          appointmentData.consultationType || 'consultation',
+          appointmentId
+        );
+        console.log(`Email notification sent to doctor: ${doctor.email}`);
+      }
+    } catch (emailError) {
+      console.error('Error sending email notification to doctor:', emailError);
+      // Don't fail the assignment if email fails
+    }
+    
     toast({
       title: 'Doctor Assigned',
       description: `Assigned Dr. ${doctor.name} to appointment`,
     });
     setAssigningAppointmentId(null);
-    setSelectedAssignDoctorId(null);  } catch (error) {
+    setSelectedAssignDoctorId(null);
+  } catch (error) {
     console.error("Error assigning doctor:", error);
     toast({
       title: 'Error',
@@ -719,6 +923,12 @@ const handleAssignDoctor = async (appointmentId: string, doctorId: string) => {
       variant: 'destructive',
     });
   }
+};
+// Define the checkAppointmentStatus function
+const checkAppointmentStatus = (appointment) => {
+  const appointmentDateTime = new Date(`${appointment.date} ${appointment.time}`);
+  const currentDateTime = new Date();
+  return currentDateTime > appointmentDateTime ? 'completed' : appointment.status;
 };
 // Render user details view
 const renderUserDetails = () => {
@@ -945,7 +1155,8 @@ return (
 						{filteredUsers.slice(0, 5).map((user) => (
 						  <tr key={user.id} className="border-b">
 							<td className="px-4 py-4">{user.name}</td>
-							<td className="px-4 py-4">{user.email}</td>							<td className="px-4 py-4">
+							<td className="px-4 py-4">{user.email}</td>
+							<td className="px-4 py-4">
 							  <span className={cn(
 								"px-2 py-1 rounded-full text-xs",
 								(() => {
@@ -1132,7 +1343,7 @@ View
 <button
 onClick={() => updateUserStatus(user.id,
 'suspended')}
-className="text-red-600 hover:text-red-800 text-sm font-medium"
+className="text-orange-600 hover:text-orange-800 text-sm font-medium"
 >
 Suspend
 </button>
@@ -1146,6 +1357,12 @@ font-medium"
 Approve
 </button>
 )}
+<button
+onClick={() => handleDeleteUser(user)}
+className="text-red-600 hover:text-red-800 text-sm font-medium"
+>
+Delete
+</button>
 </td>
 </tr>
 ))
@@ -1214,7 +1431,7 @@ Approve
                   {doctor.status === 'approved' && (
                     <button
                       onClick={() => updateUserStatus(doctor.id, 'suspended')}
-                      className="text-red-600 hover:text-red-800 text-sm font-medium"
+                      className="text-orange-600 hover:text-orange-800 text-sm font-medium"
                     >
                       Suspend
                     </button>
@@ -1227,6 +1444,12 @@ Approve
                       Approve
                     </button>
                   )}
+                  <button
+                    onClick={() => handleDeleteUser(doctor)}
+                    className="text-red-600 hover:text-red-800 text-sm font-medium"
+                  >
+                    Delete
+                  </button>
                 </div>
               </td>
             </tr>
@@ -1473,6 +1696,7 @@ they will appear here</p>
 <tbody>
 {appointments.map(appointment => {
             const isUnassigned = !appointment.doctorId || appointment.doctorName === 'N/A';
+            const updatedStatus = checkAppointmentStatus(appointment);
             return (
               <tr key={appointment.id} className="border-b hover:bg-gray-50">
                 <td className="px-4 py-4">
@@ -1487,11 +1711,12 @@ they will appear here</p>
                 <td className="px-4 py-4">{appointment.time}</td>
                 <td className="px-4 py-4">
                   <span className={(() => {
-                    if (appointment.status === 'confirmed') return 'bg-green-100 text-green-800';
-                    if (appointment.status === 'cancelled') return 'bg-red-100 text-red-800';
+                    if (updatedStatus === 'completed') return 'bg-blue-100 text-blue-800';
+                    if (updatedStatus === 'confirmed') return 'bg-green-100 text-green-800';
+                    if (updatedStatus === 'cancelled') return 'bg-red-100 text-red-800';
                     return 'bg-yellow-100 text-yellow-800';
                   })()}>
-                    {appointment.status}
+                    {updatedStatus}
                   </span>
                 </td>
                 <td className="px-4 py-4">
@@ -1553,7 +1778,7 @@ they will appear here</p>
                     {appointment.status === 'confirmed' && (
                       <button
                         className="text-blue-600 hover:underline text-sm"
-                        onClick={() => updateAppointmentStatus(appointment.id, 'completed')}
+                        onClick={() => setCompleteConfirm({ show: true, appointmentId: appointment.id })}
                       >
                         Complete
                       </button>
@@ -1567,6 +1792,109 @@ they will appear here</p>
       </table>
     </div>
 )}</div>
+)}
+{activeTab === 'organizations' && (
+<div className="bg-white rounded-xl shadow-sm p-6">
+<div className="flex justify-between items-center mb-6">
+<h2 className="text-xl font-semibold">Organization Bookings</h2>
+<div className="text-sm text-gray-500">
+{organizationBookings.length} total requests
+</div>
+</div>
+{organizationBookings.length === 0 ? (
+<div className="bg-gray-50 rounded-lg p-8 text-center">
+<Building className="mx-auto h-12 w-12 text-gray-400" />
+<h3 className="mt-2 text-sm font-medium text-gray-900">No organization bookings found</h3>
+<p className="mt-1 text-sm text-gray-500">When organizations request group appointments, they will appear here</p>
+</div>
+) : (
+<div className="overflow-x-auto">
+<table className="w-full text-sm">
+<thead>
+<tr className="bg-gray-50">
+<th className="px-4 py-3 text-left font-medium text-gray-700">Organization</th>
+<th className="px-4 py-3 text-left font-medium text-gray-700">Contact Person</th>
+<th className="px-4 py-3 text-left font-medium text-gray-700">Contact Info</th>
+<th className="px-4 py-3 text-left font-medium text-gray-700">Location</th>
+<th className="px-4 py-3 text-left font-medium text-gray-700">Beneficiaries</th>
+<th className="px-4 py-3 text-left font-medium text-gray-700">Preferred Date/Time</th>
+<th className="px-4 py-3 text-left font-medium text-gray-700">Status</th>
+<th className="px-4 py-3 text-left font-medium text-gray-700">Details</th>
+</tr>
+</thead>
+<tbody>
+{organizationBookings.map(booking => (
+<tr key={booking.id} className="border-b hover:bg-gray-50">
+<td className="px-4 py-4">
+<div className="font-medium">{booking.organizationName}</div>
+<div className="text-xs text-gray-500">{booking.organizationType}</div>
+</td>
+<td className="px-4 py-4">
+<div className="font-medium">{booking.contactPersonName}</div>
+<div className="text-xs text-gray-500">{booking.designation}</div>
+</td>
+<td className="px-4 py-4">
+<div className="text-sm">{booking.contactPhone}</div>
+<div className="text-xs text-gray-500">{booking.contactEmail}</div>
+</td>
+<td className="px-4 py-4">
+<div className="text-sm">{booking.city}, {booking.state}</div>
+</td>
+<td className="px-4 py-4">
+<div className="text-sm">{booking.numberOfBeneficiaries}</div>
+</td>
+<td className="px-4 py-4">
+<div className="text-sm">{booking.preferredDate}</div>
+<div className="text-xs text-gray-500">{booking.preferredTime}</div>
+</td>
+<td className="px-4 py-4">
+<span className={`px-2 py-1 rounded-full text-xs font-medium ${
+booking.status === 'completed' ? 'bg-blue-100 text-blue-800' :
+booking.status === 'contacted' ? 'bg-green-100 text-green-800' :
+booking.status === 'scheduled' ? 'bg-purple-100 text-purple-800' :
+booking.status === 'cancelled' ? 'bg-red-100 text-red-800' :
+'bg-yellow-100 text-yellow-800'
+}`}>
+{booking.status}
+</span>
+</td>
+<td className="px-4 py-4">
+<div className="space-y-1">
+<div className="text-xs text-gray-600">
+<strong>Requirement:</strong> {booking.requirement}
+</div>
+{booking.additionalNotes && (
+<div className="text-xs text-gray-600">
+<strong>Notes:</strong> {booking.additionalNotes}
+</div>
+)}
+<div className="text-xs text-gray-500">
+Submitted: {new Date(booking.submittedAt).toLocaleDateString()}
+</div>
+{booking.scheduledDate && (
+<div className="text-xs text-green-600">
+<strong>Scheduled:</strong> {booking.scheduledDate} at {booking.scheduledTime}
+</div>
+)}
+{booking.assignedDoctor && (
+<div className="text-xs text-blue-600">
+<strong>Doctor:</strong> {booking.assignedDoctor}
+</div>
+)}
+{booking.adminNotes && (
+<div className="text-xs text-gray-600">
+<strong>Admin Notes:</strong> {booking.adminNotes}
+</div>
+)}
+</div>
+</td>
+</tr>
+))}
+</tbody>
+</table>
+</div>
+)}
+</div>
 )}
 {activeTab === 'verifications' && (
 <div className="bg-white rounded-xl shadow-sm p-6">
@@ -1690,6 +2018,89 @@ font-medium"
 	</AlertDialogFooter>
   </AlertDialogContent>
 </AlertDialog>
+{/* Complete Appointment Confirmation Dialog */}
+{completeConfirm?.show && (
+  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40">
+    <div className="bg-white rounded-lg shadow-lg p-6 relative min-w-[300px] max-w-[400px]">
+      <button
+        className="absolute top-2 right-2 text-gray-500 hover:text-gray-700 text-xl"
+        onClick={() => setCompleteConfirm(null)}
+        aria-label="Close"
+      >
+        ×
+      </button>
+      <h3 className="text-lg font-bold mb-2 text-[#2563eb]">Mark Appointment Complete?</h3>
+      <div className="mb-4">Are you sure you want to mark this appointment as <b>completed</b>? This action cannot be undone.</div>
+      <div className="flex gap-2 justify-end">
+        <button
+          className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
+          onClick={() => setCompleteConfirm(null)}
+        >
+          No, Go Back
+        </button>
+        <button
+          className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+          onClick={() => updateAppointmentStatus(completeConfirm.appointmentId, 'completed')}
+        >
+          Yes, Complete
+        </button>
+      </div>
+    </div>
+  </div>
+)}
+
+{/* Delete User Confirmation Dialog */}
+{deleteConfirm?.show && (
+  <AlertDialog open={deleteConfirm.show} onOpenChange={() => setDeleteConfirm(null)}>
+    <AlertDialogContent>
+      <AlertDialogHeader>
+        <AlertDialogTitle className="text-red-600">⚠️ Permanently Delete User Account</AlertDialogTitle>
+        <AlertDialogDescription className="space-y-3">
+          <div>
+            <strong>You are about to permanently delete:</strong>
+          </div>
+          <div className="bg-red-50 p-3 rounded border-l-4 border-red-400">
+            <div><strong>Name:</strong> {deleteConfirm.userName}</div>
+            <div><strong>Email:</strong> {deleteConfirm.userEmail}</div>
+          </div>
+          <div className="text-red-700 font-medium">
+            ⚠️ <strong>This action cannot be undone!</strong>
+          </div>
+          <div>
+            This will permanently delete:
+            <ul className="list-disc list-inside mt-2 text-sm">
+              <li>User account and profile data</li>
+              <li>All appointment history</li>
+              <li>Doctor schedules (if applicable)</li>
+              <li>All related medical records</li>
+            </ul>
+          </div>
+          <div className="bg-yellow-100 p-3 rounded border border-yellow-300">
+            <div className="text-yellow-800 text-sm">
+              <strong>⚠️ Important Note:</strong> This only deletes data from our database. 
+              The Firebase Authentication record will remain, so the user cannot register again with the same email. 
+              If they try to register, they should use the "Forgot Password" option instead.
+            </div>
+          </div>
+          <div className="bg-gray-100 p-3 rounded">
+            <strong>Alternative:</strong> Consider suspending the account instead, which can be reversed later.
+          </div>
+        </AlertDialogDescription>
+      </AlertDialogHeader>
+      <AlertDialogFooter className="flex-col sm:flex-row gap-2">
+        <AlertDialogCancel className="w-full sm:w-auto">
+          Cancel - Keep Account
+        </AlertDialogCancel>
+        <AlertDialogAction
+          onClick={() => deleteUserPermanently(deleteConfirm.userId)}
+          className="w-full sm:w-auto bg-red-600 hover:bg-red-700 text-white"
+        >
+          🗑️ Yes, Delete Permanently
+        </AlertDialogAction>
+      </AlertDialogFooter>
+    </AlertDialogContent>
+  </AlertDialog>
+)}
 </div>
 );
 };

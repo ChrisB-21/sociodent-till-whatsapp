@@ -16,6 +16,7 @@ import { ref, get } from "firebase/database";
 import AuthLayout from "@/components/auth/AuthLayout";
 import SubmitButton from "@/components/auth/SubmitButton";
 import EmailOtpVerification from "@/components/auth/EmailOtpVerification";
+import AudioCaptcha from "@/components/AudioCaptcha";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/context/AuthContext";
 
@@ -362,11 +363,30 @@ const Auth = () => {
   const handleDatabaseError = async (dbError: any, userCredential: any, emailToUse: string) => {
     console.error("Database error:", dbError);
     
+    // Check if error indicates user not found in database
+    const isUserNotFoundError = dbError.message?.includes("User not found") || 
+                               dbError.message?.includes("no user data") ||
+                               dbError.message?.includes("doesn't have admin privileges") ||
+                               (dbError.message?.includes("No user found") && userCredential);
+    
     // Determine if this is a permission error
     const isPermissionError = dbError.message?.includes("permission_denied") || 
                              dbError.code === "PERMISSION_DENIED";
     
-    if (isPermissionError) {
+    if (isUserNotFoundError && userCredential) {
+      // User has valid Firebase Auth but no database record (likely deleted)
+      await signOut(auth);
+      setErrorMessage(`Your account data was not found in our system. This might happen if your account was deleted. 
+      
+If you recently registered, please try creating a new account. 
+If you believe this is an error, please contact support.`);
+      
+      toast({
+        title: "Account Data Not Found",
+        description: "Your authentication exists but account data is missing. Please contact support or create a new account.",
+        variant: "destructive",
+      });
+    } else if (isPermissionError) {
       // For permission errors, allow the user to stay logged in with Firebase Auth
       // The AuthContext will handle maintaining the Firebase session
       // Default to basic user role if we can't verify from database
@@ -641,6 +661,10 @@ const Auth = () => {
           <label className="block text-gray-700 mb-1 text-sm font-medium">
             Verify you're human
           </label>
+          
+          {/* Audio CAPTCHA for accessibility */}
+          <AudioCaptcha captchaText={captcha} className="mb-3" />
+          
           <div className="flex items-center mb-2">
             <div className="flex-1 flex items-center justify-between px-3 py-2 bg-white border rounded font-mono tracking-widest text-lg select-none">
               <span>{captcha}</span>

@@ -37,6 +37,15 @@
         ".read": "auth != null || $userId === auth.uid",
         ".write": "auth != null || $userId === auth.uid"
       }
+    },
+    
+    "organizationBookings": {
+      ".read": "auth != null",
+      ".write": "true",
+      "$bookingId": {
+        ".read": "auth != null",
+        ".write": "true"
+      }
     }
   }
 }

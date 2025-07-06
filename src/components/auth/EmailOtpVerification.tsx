@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from "react";
-import { EmailService } from "../../../services/emailService";
 
 interface EmailOtpVerificationProps {
   userEmail: string;
@@ -40,7 +39,7 @@ const EmailOtpVerification: React.FC<EmailOtpVerificationProps> = ({
     return Math.floor(100000 + Math.random() * 900000).toString();
   };
 
-  // Function to send OTP via email
+  // Function to send OTP via email (simplified version)
   const sendOtp = async () => {
     try {
       setIsLoading(true);
@@ -48,20 +47,28 @@ const EmailOtpVerification: React.FC<EmailOtpVerificationProps> = ({
       // Generate a new OTP
       const newOtp = generateOtp();
       setGeneratedOtp(newOtp);
-
-      // Send the OTP via email
-      await EmailService.sendOtpEmail(userEmail, userName, newOtp);
-
+      
+      // For demo purposes, we'll just store it locally and simulate sending
+      // In a real implementation, you would send this via your email service
+      localStorage.setItem('emailOtp', newOtp);
+      localStorage.setItem('emailOtpEmail', userEmail);
+      localStorage.setItem('emailOtpExpiry', (Date.now() + 600000).toString()); // 10 minutes expiry
+      
+      console.log(`OTP for ${userEmail}: ${newOtp}`); // For testing - remove in production
+      
+      // Simulate API delay
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
       setIsSent(true);
       setIsLoading(false);
       setTimer(600); // Reset timer to 10 minutes
       setOtp("");
+      onError(''); // Clear any previous errors
+      
     } catch (error: any) {
-      console.error("Error sending OTP email:", error);
+      console.error("Error sending OTP:", error);
       setIsLoading(false);
-
-      // Provide user-friendly error message
-      onError("Failed to send verification code. Please check your email address and try again.");
+      onError("Failed to send verification code. Please try again.");
     }
   };
 

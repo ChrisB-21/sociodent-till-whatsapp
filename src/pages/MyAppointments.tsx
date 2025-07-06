@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Calendar, User, Mail, Phone, MapPin, Settings } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { ref, onValue, update } from 'firebase/database';
+import { ref, onValue, update, get } from 'firebase/database';
 import { db } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 
 // Define types for our data
 interface UserData {
@@ -27,6 +28,7 @@ interface Appointment {
   time: string;
   type: string;
   status: 'pending' | 'confirmed' | 'completed' | 'cancelled';
+  doctorId?: string; // Add doctorId to appointment interface
 }
 
 interface FirebaseAppointment {
@@ -54,6 +56,21 @@ const MyAppointments = () => {
 
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [loading, setLoading] = useState(true);
+  const [viewDoctor, setViewDoctor] = useState<{ 
+    name: string; 
+    email?: string; 
+    phone?: string; 
+    specialization?: string; 
+    image?: string;
+    licenseNumber?: string;
+    experience?: string;
+    qualifications?: string;
+    clinicAddress?: string;
+    consultationFee?: string;
+    availableHours?: string;
+    languages?: string[];
+    about?: string;
+  } | null>(null);
   
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -152,6 +169,7 @@ const MyAppointments = () => {
                 time: appt.time || 'To be confirmed',
                 type: appt.consultationType || 'General',
                 status: appt.status || 'pending',
+                doctorId: appt.doctorId, // Include doctorId in appointment
               };
             });
           
@@ -352,6 +370,107 @@ const MyAppointments = () => {
                                 </button>
                               </>
                             )}
+                            <button
+                              onClick={async () => {
+                                // Check if appointment has a doctorId
+                                if (appointment.doctorId) {
+                                  console.log('Fetching doctor details for ID:', appointment.doctorId);
+                                  
+                                  const doctorRef = ref(db, `users/${appointment.doctorId}`);
+                                  onValue(doctorRef, (doctorSnap) => {
+                                    if (doctorSnap.exists()) {
+                                      const doctorData = doctorSnap.val();
+                                      console.log('Doctor data found:', doctorData);
+                                      
+                                      setViewDoctor({
+                                        name: doctorData.fullName || doctorData.name || '',
+                                        email: doctorData.email || '',
+                                        phone: doctorData.phone || doctorData.phoneNumber || '',
+                                        specialization: doctorData.specialization || '',
+                                        image: doctorData.profileImage || doctorData.profilePhotoUrl || '/doc-img/placeholder.svg',
+                                        licenseNumber: doctorData.licenseNumber || '',
+                                        experience: doctorData.experience || '',
+                                        qualifications: doctorData.qualifications || doctorData.degree || '',
+                                        clinicAddress: doctorData.clinicAddress || doctorData.address || '',
+                                        consultationFee: doctorData.consultationFee || '',
+                                        availableHours: doctorData.availableHours || '',
+                                        languages: doctorData.languages || [],
+                                        about: doctorData.about || doctorData.bio || ''
+                                      });
+                                    } else {
+                                      console.log('Doctor not found for ID:', appointment.doctorId);
+                                      // Fallback: show basic info from appointment
+                                      setViewDoctor({
+                                        name: appointment.doctor.name,
+                                        email: 'Not available',
+                                        phone: 'Not available',
+                                        specialization: appointment.doctor.specialization,
+                                        image: appointment.doctor.image,
+                                        licenseNumber: '',
+                                        experience: '',
+                                        qualifications: '',
+                                        clinicAddress: '',
+                                        consultationFee: '',
+                                        availableHours: '',
+                                        languages: [],
+                                        about: ''
+                                      });
+                                    }
+                                  }, { onlyOnce: true });
+                                } else if (appointment.doctor.name !== 'Pending Assignment') {
+                                  // Fallback: search by name if no doctorId
+                                  const usersRef = ref(db, 'users');
+                                  onValue(usersRef, (usersSnap) => {
+                                    if (usersSnap.exists()) {
+                                      const usersData = usersSnap.val();
+                                      const doctor = Object.values(usersData).find((u: any) => 
+                                        (u.fullName === appointment.doctor.name || u.name === appointment.doctor.name) && u.role === 'doctor'
+                                      );
+                                      if (doctor && typeof doctor === 'object') {
+                                        const doctorData = doctor as any;
+                                        setViewDoctor({
+                                          name: doctorData.fullName || doctorData.name || '',
+                                          email: doctorData.email || '',
+                                          phone: doctorData.phone || doctorData.phoneNumber || '',
+                                          specialization: doctorData.specialization || '',
+                                          image: doctorData.profileImage || doctorData.profilePhotoUrl || '/doc-img/placeholder.svg',
+                                          licenseNumber: doctorData.licenseNumber || '',
+                                          experience: doctorData.experience || '',
+                                          qualifications: doctorData.qualifications || doctorData.degree || '',
+                                          clinicAddress: doctorData.clinicAddress || doctorData.address || '',
+                                          consultationFee: doctorData.consultationFee || '',
+                                          availableHours: doctorData.availableHours || '',
+                                          languages: doctorData.languages || [],
+                                          about: doctorData.about || doctorData.bio || ''
+                                        });
+                                      } else {
+                                        console.log('Doctor not found by name:', appointment.doctor.name);
+                                        // Show basic info from appointment
+                                        setViewDoctor({
+                                          name: appointment.doctor.name,
+                                          email: 'Not available',
+                                          phone: 'Not available',
+                                          specialization: appointment.doctor.specialization,
+                                          image: appointment.doctor.image,
+                                          licenseNumber: '',
+                                          experience: '',
+                                          qualifications: '',
+                                          clinicAddress: '',
+                                          consultationFee: '',
+                                          availableHours: '',
+                                          languages: [],
+                                          about: ''
+                                        });
+                                      }
+                                    }
+                                  }, { onlyOnce: true });
+                                }
+                              }}
+                              className="text-sociodent-600 hover:text-sociodent-700 text-sm ml-2 disabled:text-gray-400"
+                              disabled={appointment.doctor.name === 'Pending Assignment'}
+                            >
+                              View
+                            </button>
                           </div>
                         </div>
                       </div>
@@ -366,6 +485,145 @@ const MyAppointments = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Enhanced Doctor Info Modal */}
+      {viewDoctor && (
+        <Dialog open={!!viewDoctor} onOpenChange={() => setViewDoctor(null)}>
+          <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="text-xl font-bold text-center">Doctor Profile</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-6">
+              {/* Doctor Header */}
+              <div className="flex flex-col items-center text-center space-y-3">
+                <img 
+                  src={viewDoctor.image || '/doc-img/placeholder.svg'} 
+                  alt={viewDoctor.name} 
+                  className="w-24 h-24 rounded-full object-cover border-4 border-blue-100"
+                />
+                <div>
+                  <h2 className="text-2xl font-bold text-gray-800">Dr. {viewDoctor.name}</h2>
+                  <p className="text-lg text-blue-600 font-medium">{viewDoctor.specialization || 'General Dentist'}</p>
+                  {viewDoctor.licenseNumber && (
+                    <p className="text-sm text-gray-500">License: {viewDoctor.licenseNumber}</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Contact Information */}
+              <div className="bg-gray-50 rounded-lg p-4">
+                <h3 className="text-lg font-semibold text-gray-800 mb-3 flex items-center">
+                  <Mail className="w-5 h-5 mr-2 text-blue-600" />
+                  Contact Information
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="flex items-center space-x-2">
+                    <Mail className="w-4 h-4 text-gray-500" />
+                    <span className="text-sm">
+                      <strong>Email:</strong> {viewDoctor.email || 'Not available'}
+                    </span>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Phone className="w-4 h-4 text-gray-500" />
+                    <span className="text-sm">
+                      <strong>Phone:</strong> {viewDoctor.phone || 'Not available'}
+                    </span>
+                  </div>
+                  {viewDoctor.clinicAddress && (
+                    <div className="flex items-start space-x-2 md:col-span-2">
+                      <MapPin className="w-4 h-4 text-gray-500 mt-0.5" />
+                      <span className="text-sm">
+                        <strong>Clinic Address:</strong> {viewDoctor.clinicAddress}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Professional Details */}
+              <div className="bg-blue-50 rounded-lg p-4">
+                <h3 className="text-lg font-semibold text-gray-800 mb-3 flex items-center">
+                  <User className="w-5 h-5 mr-2 text-blue-600" />
+                  Professional Details
+                </h3>
+                <div className="space-y-2">
+                  {viewDoctor.experience && (
+                    <div className="text-sm">
+                      <strong>Experience:</strong> {viewDoctor.experience}
+                    </div>
+                  )}
+                  {viewDoctor.qualifications && (
+                    <div className="text-sm">
+                      <strong>Qualifications:</strong> {viewDoctor.qualifications}
+                    </div>
+                  )}
+                  {viewDoctor.consultationFee && (
+                    <div className="text-sm">
+                      <strong>Consultation Fee:</strong> ₹{viewDoctor.consultationFee}
+                    </div>
+                  )}
+                  {viewDoctor.availableHours && (
+                    <div className="text-sm">
+                      <strong>Available Hours:</strong> {viewDoctor.availableHours}
+                    </div>
+                  )}
+                  {viewDoctor.languages && viewDoctor.languages.length > 0 && (
+                    <div className="text-sm">
+                      <strong>Languages:</strong> {viewDoctor.languages.join(', ')}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* About Section */}
+              {viewDoctor.about && (
+                <div className="bg-green-50 rounded-lg p-4">
+                  <h3 className="text-lg font-semibold text-gray-800 mb-3">About Dr. {viewDoctor.name}</h3>
+                  <p className="text-sm text-gray-700 leading-relaxed">{viewDoctor.about}</p>
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              <div className="flex justify-center space-x-3 pt-4 border-t">
+                {viewDoctor.phone && viewDoctor.phone !== 'Not available' ? (
+                  <button
+                    onClick={() => window.open(`tel:${viewDoctor.phone}`)}
+                    className="flex items-center space-x-2 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors"
+                  >
+                    <Phone className="w-4 h-4" />
+                    <span>Call Doctor</span>
+                  </button>
+                ) : (
+                  <button
+                    disabled
+                    className="flex items-center space-x-2 bg-gray-400 text-white px-4 py-2 rounded-lg cursor-not-allowed"
+                  >
+                    <Phone className="w-4 h-4" />
+                    <span>Phone Not Available</span>
+                  </button>
+                )}
+                {viewDoctor.email && viewDoctor.email !== 'Not available' ? (
+                  <button
+                    onClick={() => window.open(`mailto:${viewDoctor.email}`)}
+                    className="flex items-center space-x-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+                  >
+                    <Mail className="w-4 h-4" />
+                    <span>Send Email</span>
+                  </button>
+                ) : (
+                  <button
+                    disabled
+                    className="flex items-center space-x-2 bg-gray-400 text-white px-4 py-2 rounded-lg cursor-not-allowed"
+                  >
+                    <Mail className="w-4 h-4" />
+                    <span>Email Not Available</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
       )}
     </div>
   );

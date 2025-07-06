@@ -28,6 +28,9 @@ export interface UseConsultationBookingReturn {
   paymentMethod: PaymentMethod;
   isProcessingPayment: boolean;
   showReportWarning: boolean;
+  hasIncompleteAppointments: boolean;
+  incompleteAppointments: any[];
+  isCheckingAppointments: boolean;
   
   // Form data
   formData: BookingFormData;
@@ -64,6 +67,9 @@ export const useConsultationBooking = ({
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('razorpay');
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [showReportWarning, setShowReportWarning] = useState(false);
+  const [hasIncompleteAppointments, setHasIncompleteAppointments] = useState(false);
+  const [incompleteAppointments, setIncompleteAppointments] = useState<any[]>([]);
+  const [isCheckingAppointments, setIsCheckingAppointments] = useState(true);
 
   // Form data
   const [formData, setFormDataState] = useState<BookingFormData>({
@@ -82,6 +88,27 @@ export const useConsultationBooking = ({
     paymentService.initializePaymentSDK();
   }, []);
 
+  // Check for incomplete appointments on mount
+  useEffect(() => {
+    const checkIncompleteAppointments = async () => {
+      try {
+        setIsCheckingAppointments(true);
+        const result = await consultationService.hasIncompleteAppointments();
+        setHasIncompleteAppointments(result.hasIncomplete);
+        setIncompleteAppointments(result.appointments || []);
+      } catch (error) {
+        console.error('Error checking incomplete appointments:', error);
+        // Don't block user if check fails
+        setHasIncompleteAppointments(false);
+        setIncompleteAppointments([]);
+      } finally {
+        setIsCheckingAppointments(false);
+      }
+    };
+
+    checkIncompleteAppointments();
+  }, []);
+
   // Update form data
   const setFormData = (data: Partial<BookingFormData>) => {
     setFormDataState(prev => ({ ...prev, ...data }));
@@ -89,7 +116,8 @@ export const useConsultationBooking = ({
 
   // Get consultation types and other data
   const consultationTypes = consultationService.getConsultationTypes();
-  const availableTimeSlots = consultationService.getAvailableTimeSlots();
+  // Pass selected date to getAvailableTimeSlots for dynamic filtering
+  const availableTimeSlots = consultationService.getAvailableTimeSlots(formData.date);
   const dateConstraints = consultationService.getDateConstraints();
   const availablePaymentMethods = paymentService.getAvailablePaymentMethods(consultationType);
   const selectedConsultation = consultationService.getConsultationByType(consultationType);
@@ -247,6 +275,9 @@ export const useConsultationBooking = ({
     paymentMethod,
     isProcessingPayment,
     showReportWarning,
+    hasIncompleteAppointments,
+    incompleteAppointments,
+    isCheckingAppointments,
     
     // Form data
     formData,

@@ -32,11 +32,52 @@ const Footer = () => {
     }
   };
 
+  // Contact information with links
+  const contactItems = [
+    {
+      icon: <MapPin size={22} className="mt-0.5 mr-3 flex-shrink-0" />,
+      content: (
+        <a
+          href="https://www.google.com/maps/search/?api=1&query=Sociodent+Private+Limited+IITM+Research+Park+Chennai"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="hover:text-gray-900 transition-colors"
+        >
+          Sociodent Private Limited<br />
+          IITM Research Park, No. 1 FA, I Floor, Kanagam Road,<br />
+          Taramani, Adayar, Chennai-600 113, Tamil Nadu, India.
+        </a>
+      )
+    },
+    {
+      icon: <Phone size={22} className="mr-3 flex-shrink-0" />,
+      content: (
+        <a
+          href="tel:+919043561043"
+          className="hover:text-gray-900 transition-colors"
+        >
+          +91 90435 61043
+        </a>
+      )
+    },
+    {
+      icon: <Mail size={22} className="mr-3 flex-shrink-0" />,
+      content: (
+        <a
+          href="mailto:steward@sociodent.in?subject=Enquiry from SocioDent Website"
+          className="hover:text-gray-900 transition-colors"
+        >
+          steward@sociodent.in
+        </a>
+      )
+    }
+  ];
+
   // Conditionally include "Find a Dentist"
   const quickLinks = [
     { label: "Home", path: "/" },
     ...(isLoggedIn ? [{ label: "Find a Dentist", path: "/consultation" }] : []),
-    { label: "Products", path: "/products" },  // Redirects to products page (Marketplace)
+    { label: "Products", path: "/products" },
     { label: "About Us", path: "/about" },
   ];
 
@@ -94,36 +135,14 @@ const Footer = () => {
               Contact Us
             </h3>
             <ul className="space-y-4 text-base text-gray-600">
-              <li className="flex items-start">
-                <MapPin size={22} className="mt-0.5 mr-3 flex-shrink-0" />
-                <span>
-                  Sociodent Private Limited<br />
-                  IITM Research Park, No. 1 FA, I Floor, Kanagam Road,<br />
-                  Taramani, Adayar, Chennai-600 113, Tamil Nadu, India.
-                </span>
-              </li>
-              <li className="flex items-center">
-                <Phone size={22} className="mr-3 flex-shrink-0" />
-                <a
-                  href="tel:+919043561043"
-                  className="rounded px-1 py-0.5 hover:bg-gray-200 transition-colors"
-                  style={{ color: "inherit", textDecoration: "none" }}
-                >
-                  +91 90435 61043
-                </a>
-              </li>
-              <li className="flex items-center">
-                <Mail size={22} className="mr-3 flex-shrink-0" />
-                <a
-                  href="mailto:steward@sociodent.in"
-                  className="rounded px-1 py-0.5 hover:bg-gray-200 transition-colors"
-                  style={{ color: "inherit", textDecoration: "none" }}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  steward@sociodent.in
-                </a>
-              </li>
+              {contactItems.map((item, index) => (
+                <li key={index} className="flex items-start">
+                  {item.icon}
+                  <div className="flex-1">
+                    {item.content}
+                  </div>
+                </li>
+              ))}
             </ul>
           </div>
 
