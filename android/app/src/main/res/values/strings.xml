@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">sociodent</string>
+    <string name="title_activity_main">sociodent</string>
+    <string name="package_name">sociodent.app</string>
+    <string name="custom_url_scheme">sociodent.app</string>
+</resources>
