@@ -47,8 +47,8 @@ const queryClient = new QueryClient({
   },
 });
 
-const getBasename = () =>
-  process.env.NODE_ENV === "production" ? "/socio-smile-market-23" : "/";
+const getBasename = () => "/";
+
 
 const App: React.FC = () => (
   <QueryClientProvider client={queryClient}>

@@ -6,7 +6,7 @@ import { componentTagger } from "lovable-tagger";
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
-  base: mode === 'production' ? '/socio-smile-market-23/' : '/',
+  base: './',
   server: {
     host: "::",
     port: 8081, // Change this to 8081
