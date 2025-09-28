@@ -1,6 +1,7 @@
 import { ref, get, update } from 'firebase/database';
 import { db } from '@/firebase';
 import { notifyDoctorOfAssignment, notifyPatientOfConfirmation } from './notifications';
+import { getCoordinatesFromMapbox } from '@/services/mapboxGeocode';
 
 // Types for data structures
 interface Doctor {
@@ -131,41 +132,12 @@ const COORDINATES_CACHE: Map<string, { lat: number; lng: number } | null> = new 
  */
 const getCoordinatesFromAddress = async (address: string): Promise<{ lat: number; lng: number } | null> => {
   try {
-    // Check cache first
     if (COORDINATES_CACHE.has(address)) {
       return COORDINATES_CACHE.get(address) ?? null;
     }
-
-    // Using OpenStreetMap Nominatim API (free alternative to Google Maps)
-    const encodedAddress = encodeURIComponent(`${address}, India`);
-    const response = await fetch(
-      `https://nominatim.openstreetmap.org/search?format=json&q=${encodedAddress}&limit=1&countrycodes=in`,
-      {
-        headers: {
-          'User-Agent': 'SocioSmile/1.0 (dental-appointment-system)'
-        }
-      }
-    );
-    
-    if (!response.ok) {
-      console.error('Geocoding service unavailable');
-      COORDINATES_CACHE.set(address, null);
-      return null;
-    }
-    
-    const data = await response.json();
-    
-    if (data && data.length > 0) {
-      const coords = {
-        lat: parseFloat(data[0].lat),
-        lng: parseFloat(data[0].lon)
-      };
-      COORDINATES_CACHE.set(address, coords);
-      return coords;
-    }
-    
-    COORDINATES_CACHE.set(address, null);
-    return null;
+    const coords = await getCoordinatesFromMapbox(address);
+    COORDINATES_CACHE.set(address, coords);
+    return coords;
   } catch (error) {
     console.error('Error getting coordinates:', error);
     COORDINATES_CACHE.set(address, null);
@@ -391,7 +363,7 @@ const calculateDoctorMatchScores = async (
   return {
     doctor,
     score: totalScore,
-    distance: distanceResult.distance,
+  distance: distanceResult.distance ?? undefined,
     specializationMatch: specializationResult.score,
     areaMatch: areaResult.score,
     distanceScore: distanceResult.score,
@@ -1263,5 +1235,165 @@ export const assignDoctorsToAllPendingAppointments = async (): Promise<{
   } catch (error) {
     console.error('Error in batch doctor assignment:', error);
     return { total: 0, successful: 0, failed: 0, details: [] };
+  }
+};
+
+/**
+ * Get available doctors for manual assignment by admin
+ * Filters out doctors who already have appointments at the specified time
+ */
+export const getAvailableDoctorsForManualAssignment = async (
+  date: string,
+  time: string,
+  patientLocation?: LocationInfo
+): Promise<{
+  success: boolean;
+  doctors: (Doctor & { distance?: number | null })[];
+  message: string;
+  conflictedDoctors: { doctor: Doctor & { distance?: number | null }; conflictReason: string }[];
+}> => {
+  try {
+    // Get all active doctors
+    const doctorsResult = await getActiveDoctorsFromDatabase();
+    if (!doctorsResult.success) {
+      return {
+        success: false,
+        doctors: [],
+        message: doctorsResult.message,
+        conflictedDoctors: []
+      };
+    }
+
+    const allDoctors = doctorsResult.doctors;
+    const availableDoctors: (Doctor & { distance?: number | null })[] = [];
+    const conflictedDoctors: { doctor: Doctor & { distance?: number | null }; conflictReason: string }[] = [];
+
+    // Get doctor schedules
+    const schedulesRef = ref(db, 'doctorSchedules');
+    const schedulesSnapshot = await get(schedulesRef);
+    const doctorSchedules: DoctorSchedule[] = schedulesSnapshot.exists()
+      ? Object.values(schedulesSnapshot.val())
+      : [];
+
+    // For each doctor, calculate distance if patientLocation is provided
+    for (const doctor of allDoctors) {
+      const schedule = doctorSchedules.find(s => s.doctorId === doctor.id);
+
+      // Build doctor location for geocoding
+      const doctorLocation: LocationInfo = {
+        area: doctor.area ?? doctor.address?.area,
+        city: doctor.address?.city,
+        state: doctor.address?.state,
+        pincode: doctor.address?.pincode,
+        fullAddress: doctor.address?.fullAddress
+      };
+      let distance: number | null = null;
+      if (patientLocation) {
+        try {
+          distance = await getDistanceBetweenLocations(patientLocation, doctorLocation);
+        } catch (e) {
+          distance = null;
+        }
+      }
+
+      // Check if doctor has a schedule
+      if (!schedule) {
+        conflictedDoctors.push({
+          doctor: { ...doctor, distance },
+          conflictReason: 'No schedule configured'
+        });
+        continue;
+      }
+
+      // Check if doctor is scheduled to work at the requested time
+      if (!isInDoctorSchedule(schedule, date, time)) {
+        conflictedDoctors.push({
+          doctor: { ...doctor, distance },
+          conflictReason: 'Not scheduled to work at this time'
+        });
+        continue;
+      }
+
+      // Check if doctor has conflicting appointments
+      const hasConflict = await checkForAppointmentConflict(doctor.id, date, time);
+      if (hasConflict.hasConflict) {
+        conflictedDoctors.push({
+          doctor: { ...doctor, distance },
+          conflictReason: hasConflict.reason
+        });
+        continue;
+      }
+
+      // Doctor is available
+      availableDoctors.push({ ...doctor, distance });
+    }
+
+    // Sort available and conflicted doctors by distance (ascending, nulls last)
+    const sortByDistance = (a: { distance?: number | null }, b: { distance?: number | null }) => {
+      if (a.distance == null && b.distance != null) return 1;
+      if (a.distance != null && b.distance == null) return -1;
+      if (a.distance != null && b.distance != null) return a.distance - b.distance;
+      return 0;
+    };
+    availableDoctors.sort(sortByDistance);
+    conflictedDoctors.sort((a, b) => sortByDistance(a.doctor, b.doctor));
+
+    return {
+      success: true,
+      doctors: availableDoctors,
+      message: `Found ${availableDoctors.length} available doctors, ${conflictedDoctors.length} unavailable`,
+      conflictedDoctors
+    };
+  } catch (error) {
+    console.error('Error getting available doctors for manual assignment:', error);
+    return {
+      success: false,
+      doctors: [],
+      message: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      conflictedDoctors: []
+    };
+  }
+};
+
+/**
+ * Check if a doctor has any appointment conflicts at the specified time
+ */
+const checkForAppointmentConflict = async (
+  doctorId: string,
+  date: string,
+  time: string
+): Promise<{ hasConflict: boolean; reason: string }> => {
+  try {
+    // Get all appointments for the doctor on the given date
+    const appointmentsRef = ref(db, 'appointments');
+    const snapshot = await get(appointmentsRef);
+    
+    if (!snapshot.exists()) {
+      return { hasConflict: false, reason: '' };
+    }
+    
+    const appointments = snapshot.val();
+    
+    // Find any conflicting appointments
+    const conflictingAppointment = Object.values(appointments).find(
+      (appointment: any) => 
+        appointment.doctorId === doctorId && 
+        appointment.date === date && 
+        appointment.time === time &&
+        ['pending', 'confirmed'].includes(appointment.status)
+    );
+    
+    if (conflictingAppointment) {
+      const apt = conflictingAppointment as any;
+      return { 
+        hasConflict: true, 
+        reason: `Already assigned to ${apt.userName} at ${apt.time}` 
+      };
+    }
+    
+    return { hasConflict: false, reason: '' };
+  } catch (error) {
+    console.error('Error checking appointment conflict:', error);
+    return { hasConflict: true, reason: 'Error checking availability' };
   }
 };

@@ -177,7 +177,7 @@ const About = () => {
                   </p>
                   <p>
                     Today, SocioDent promises to grow as a trusted name in special care dentistry, dedicated to
-                    ensuring that every smile-regardless of ability-receives the care it deserves.
+                    ensuring that every SocioDent-regardless of ability-receives the care it deserves.
                   </p>
                 </div>
               </div>

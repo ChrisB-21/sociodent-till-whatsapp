@@ -108,10 +108,10 @@ const HomePage = () => {
                 Get Started
               </span>
               <h2 className="reveal-on-scroll text-3xl md:text-4xl font-bold text-gray-900 mb-2">
-                Ready to Transform Your Smile?
+                Ready to Transform Your SocioDent?
               </h2>
               <p className="reveal-on-scroll text-lg text-gray-600 max-w-2xl mx-auto">
-                Take the first step towards a healthier, more confident smile
+                Take the first step towards a healthier, more confident SocioDent
               </p>
             </div>
             <div className="flex flex-wrap justify-center gap-4">
@@ -126,7 +126,7 @@ const HomePage = () => {
                 </>
               ) : (
                 <>
-                  <Link to="/auth" className="button-primary">
+                  <Link to="/signup" className="button-primary">
                     Create Account
                   </Link>
                   <Link to="/auth?mode=login" className="button-secondary">

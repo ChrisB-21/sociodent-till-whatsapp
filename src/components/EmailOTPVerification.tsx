@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { API_ENDPOINTS } from '../config/api';
 
 interface EmailOTPVerificationProps {
   email: string;
@@ -31,8 +32,7 @@ const EmailOTPVerification: React.FC<EmailOTPVerificationProps> = ({
       setTimerActive(false);
     }
     return () => clearInterval(interval);
-  }, [timer, timerActive, isSent]);
-  // Send OTP
+  }, [timer, timerActive, isSent]);  // Send OTP
   const sendOtp = async () => {
     if (!email) {
       onError('Please enter a valid email address');
@@ -43,82 +43,97 @@ const EmailOTPVerification: React.FC<EmailOTPVerificationProps> = ({
       setIsLoading(true);
       setVerificationResult(null);
       
-      // Generate a random 6-digit OTP
-      const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
+      // Debug logging
+      console.log('🔍 OTP Debug Info:');
+      console.log('Email:', email);
+      console.log('API Endpoint:', API_ENDPOINTS.OTP.SEND);
+      console.log('Full URL will be:', window.location.origin + API_ENDPOINTS.OTP.SEND);
       
-      // Store OTP in localStorage for verification (in production, this should be server-side)
-      localStorage.setItem('emailOtp', generatedOtp);
-      localStorage.setItem('emailOtpEmail', email);
-      localStorage.setItem('emailOtpExpiry', (Date.now() + 300000).toString()); // 5 minutes expiry
+      // Send OTP via backend API
+      const response = await fetch(API_ENDPOINTS.OTP.SEND, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: email
+        })
+      });
       
-      // For debugging: Show OTP in console (remove this in production)
-      console.log(`DEBUG: OTP for ${email} is: ${generatedOtp}`);
+      console.log('📊 Response Details:');
+      console.log('Status:', response.status);
+      console.log('StatusText:', response.statusText);
+      console.log('OK:', response.ok);
+      console.log('URL:', response.url);
       
-      // Try to send OTP via backend, but don't fail if it doesn't work
-      let emailSent = false;
-      try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
-        
-        const response = await fetch('http://localhost:3000/api/email/send', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            to: email,
-            subject: 'SocioDent Email Verification',
-            html: `
-              <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-                <h2 style="color: #4a90e2; text-align: center;">Email Verification</h2>
-                <p>Hello,</p>
-                <p>Your verification code for SocioDent is:</p>
-                <div style="background: #f5f5f5; padding: 20px; text-align: center; margin: 20px 0; border-radius: 5px;">
-                  <h1 style="font-size: 32px; letter-spacing: 5px; margin: 0; color: #4a90e2;">${generatedOtp}</h1>
-                </div>
-                <p>This code will expire in 5 minutes.</p>
-                <p>If you didn't request this verification, please ignore this email.</p>
-                <p>Best regards,<br>SocioDent Team</p>
-              </div>
-            `
-          }),
-          signal: controller.signal
-        });
-        
-        clearTimeout(timeoutId);
-        
-        if (response.ok) {
-          emailSent = true;
-          console.log('Email sent successfully');
-        } else {
-          const errorData = await response.json();
-          console.warn('Email sending failed:', errorData.error || 'Unknown error');
+      // Check if response is JSON
+      const contentType = response.headers.get('content-type');
+      console.log('Content-Type:', contentType);
+      
+      if (!contentType || !contentType.includes('application/json')) {
+        // Get the actual response to see what we received
+        const responseText = await response.text();
+        console.error('❌ Non-JSON Response:', responseText.substring(0, 500));
+        throw new Error('Server returned invalid response. Please check if the backend is running correctly.');
+      }
+      
+      const result = await response.json();
+      console.log('✅ JSON Result:', result);
+      
+      if (response.ok && result.success) {
+        // OTP sent successfully
+        setIsSent(true);
+        setTimer(300); // 5 minutes countdown
+        setCanResend(false);
+        setTimerActive(true);
+        setOtp('');
+        onError(''); // Clear any previous errors
+        console.log('OTP sent successfully to', email);
+      } else {
+        throw new Error(result.message || 'Failed to send OTP');
+      }    } catch (error) {
+      console.error('💥 Error in sendOtp:', error);
+      if (error instanceof Error && error.message.includes('Unexpected token')) {
+        onError('Server connection error. Please check if the backend is running.');
+      } else if (error instanceof Error && error.message.includes('invalid response')) {
+        // Try alternative approach - direct proxy call
+        console.log('🔄 Trying direct proxy call...');
+        try {
+          const fallbackResponse = await fetch('/api/otp/send', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              email: email
+            })
+          });
+          
+          if (fallbackResponse.ok) {
+            const fallbackResult = await fallbackResponse.json();
+            console.log('✅ Fallback successful:', fallbackResult);
+            
+            // Process successful result
+            setIsSent(true);
+            setTimer(300); // 5 minutes countdown
+            setCanResend(false);
+            setTimerActive(true);
+            setOtp('');
+            onError(''); // Clear any previous errors
+            console.log('OTP sent successfully to', email);
+            return;
+          }
+        } catch (fallbackError) {
+          console.error('❌ Fallback also failed:', fallbackError);
         }
-      } catch (emailError) {
-        console.warn('Failed to send email via backend:', emailError);
+        onError('Unable to send OTP. Please check your connection and try again.');
+      } else {
+        onError(error instanceof Error ? error.message : 'Failed to send OTP. Please try again.');
       }
-      
-      // Always proceed with OTP verification, regardless of email sending
-      setIsSent(true);
-      setTimer(300); // 5 minutes countdown
-      setCanResend(false);
-      setTimerActive(true);
-      setOtp('');
-      onError(''); // Clear any previous errors
-      
-      // Show a message about email status
-      if (!emailSent) {
-        console.log('Email service unavailable. For testing, check console for OTP.');
-      }
-
-    } catch (error) {
-      console.error('Error in sendOtp:', error);
-      onError('Failed to generate OTP. Please try again.');
     } finally {
       setIsLoading(false);
     }
-  };
-  // Verify OTP
+  };  // Verify OTP
   const verifyOtp = async () => {
     if (!otp || otp.length !== 6) {
       onError('Please enter a valid 6-digit OTP');
@@ -129,54 +144,98 @@ const EmailOTPVerification: React.FC<EmailOTPVerificationProps> = ({
     try {
       setIsLoading(true);
       
-      // Get stored OTP data
-      const storedOtp = localStorage.getItem('emailOtp');
-      const storedEmail = localStorage.getItem('emailOtpEmail');
-      const storedExpiry = localStorage.getItem('emailOtpExpiry');
+      // Debug logging for verification
+      console.log('🔍 OTP Verification Debug Info:');
+      console.log('Email:', email);
+      console.log('OTP:', otp);
+      console.log('Verify Endpoint:', API_ENDPOINTS.OTP.VERIFY);
+      console.log('Full URL will be:', window.location.origin + API_ENDPOINTS.OTP.VERIFY);
       
-      // Check if OTP exists and hasn't expired
-      if (!storedOtp || !storedEmail || !storedExpiry) {
-        setVerificationResult('failure');
-        setCanResend(true);
-        onError('Verification code has expired. Please request a new one.');
-        return;
+      // Verify OTP via backend API
+      const response = await fetch(API_ENDPOINTS.OTP.VERIFY, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: email,
+          otp: otp
+        })
+      });
+      
+      console.log('📊 Verification Response Details:');
+      console.log('Status:', response.status);
+      console.log('StatusText:', response.statusText);
+      console.log('OK:', response.ok);
+      console.log('URL:', response.url);
+      
+      // Check if response is JSON
+      const contentType = response.headers.get('content-type');
+      console.log('Content-Type:', contentType);
+      
+      if (!contentType || !contentType.includes('application/json')) {
+        // Get the actual response to see what we received
+        const responseText = await response.text();
+        console.error('❌ Non-JSON Verification Response:', responseText.substring(0, 500));
+        
+        // Try fallback for verification
+        console.log('🔄 Trying direct proxy for verification...');
+        try {
+          const fallbackResponse = await fetch('/api/otp/verify', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              email: email,
+              otp: otp
+            })
+          });
+          
+          if (fallbackResponse.ok) {
+            const fallbackResult = await fallbackResponse.json();
+            console.log('✅ Verification Fallback successful:', fallbackResult);
+            
+            if (fallbackResult.success) {
+              setVerificationResult('success');
+              onVerified();
+              return;
+            } else {
+              setVerificationResult('failure');
+              setCanResend(true);
+              onError(fallbackResult.message || 'Invalid verification code. Please try again.');
+              return;
+            }
+          }
+        } catch (fallbackError) {
+          console.error('❌ Verification Fallback also failed:', fallbackError);
+        }
+        
+        throw new Error('Server returned invalid response. Please check if the backend is running correctly.');
       }
       
-      if (Date.now() > parseInt(storedExpiry)) {
-        setVerificationResult('failure');
-        setCanResend(true);
-        // Clean up expired OTP
-        localStorage.removeItem('emailOtp');
-        localStorage.removeItem('emailOtpEmail');
-        localStorage.removeItem('emailOtpExpiry');
-        onError('Verification code has expired. Please request a new one.');
-        return;
-      }
+      const result = await response.json();
+      console.log('✅ Verification JSON Result:', result);
       
-      if (storedEmail !== email) {
-        setVerificationResult('failure');
-        setCanResend(true);
-        onError('Email mismatch. Please request a new verification code.');
-        return;
-      }
-      
-      if (storedOtp === otp) {
+      if (response.ok && result.success) {
         setVerificationResult('success');
-        // Clean up successful verification
-        localStorage.removeItem('emailOtp');
-        localStorage.removeItem('emailOtpEmail');
-        localStorage.removeItem('emailOtpExpiry');
         onVerified();
       } else {
         setVerificationResult('failure');
         setCanResend(true);
-        onError('Invalid verification code. Please try again.');
+        onError(result.message || 'Invalid verification code. Please try again.');
       }
     } catch (error) {
       setVerificationResult('failure');
       setCanResend(true);
-      console.error('Error verifying OTP:', error);
-      onError('Failed to verify OTP. Please try again.');
+      console.error('💥 Error verifying OTP:', error);
+      if (error instanceof Error && error.message.includes('Unexpected token')) {
+        onError('Server connection error. Please check if the backend is running.');
+      } else if (error instanceof Error && error.message.includes('invalid response')) {
+        onError('Unable to verify OTP. Please check your connection and try again.');
+      } else {
+        onError(error instanceof Error ? error.message : 'Failed to verify OTP. Please try again.');
+      }
     } finally {
       setIsLoading(false);
     }

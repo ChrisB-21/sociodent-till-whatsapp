@@ -1,5 +1,4 @@
 
-import React from 'react';
 import { Calendar, Clock, MapPin, Video, Home } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -13,6 +12,8 @@ interface AppointmentCardProps {
   location?: string;
   status: 'upcoming' | 'completed' | 'cancelled';
   className?: string;
+  onCancel?: (id: string) => void;
+  isCancelling?: boolean;
 }
 
 const AppointmentCard = ({
@@ -24,7 +25,9 @@ const AppointmentCard = ({
   type,
   location,
   status,
-  className
+  className,
+  onCancel,
+  isCancelling
 }: AppointmentCardProps) => {
   // Status styling
   const statusStyles = {
@@ -95,15 +98,29 @@ const AppointmentCard = ({
       <div className="flex justify-between pt-3 border-t border-gray-100">
         {status === 'upcoming' && (
           <>
-            <button className="button-secondary py-1.5 px-3 text-sm">
-              Reschedule
+            <button 
+              className="button-destructive py-1.5 px-3 text-sm"
+              onClick={() => onCancel?.(id)}
+              disabled={isCancelling}
+            >
+              {isCancelling ? (
+                <span className="flex items-center">
+                  <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Cancelling...
+                </span>
+              ) : (
+                'Cancel Appointment'
+              )}
             </button>
-            {type === 'virtual' && (
+            {type === 'virtual' && !isCancelling && (
               <button className="button-primary py-1.5 px-3 text-sm">
                 Join Call
               </button>
             )}
-            {type !== 'virtual' && (
+            {type !== 'virtual' && !isCancelling && (
               <button className="button-primary py-1.5 px-3 text-sm">
                 Get Directions
               </button>

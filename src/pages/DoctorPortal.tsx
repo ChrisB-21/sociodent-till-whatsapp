@@ -76,8 +76,13 @@ const DoctorPortal = () => {
   const [userDetails, setUserDetails] = useState<Record<string, any>>({});
   const [showCompleteDialog, setShowCompleteDialog] = useState(false);
   const [appointmentToComplete, setAppointmentToComplete] = useState<string | null>(null);
+
   const [meetingLinkInput, setMeetingLinkInput] = useState('');
   const [editingMeetingLink, setEditingMeetingLink] = useState<string | null>(null);
+
+  // State for cancel confirmation dialog
+  const [showCancelDialog, setShowCancelDialog] = useState(false);
+  const [appointmentToCancel, setAppointmentToCancel] = useState<Appointment | null>(null);
 
   // Prescription state
   const [selectedPatientId, setSelectedPatientId] = useState('');
@@ -823,6 +828,85 @@ const DoctorPortal = () => {
                                         Complete
                                       </button>
                                     )}
+                                    {/* Cancel button (for confirmed or pending, not completed/cancelled) */}
+                                    {(status === 'confirmed' || status === 'pending') && !isPastAppointment(appointment.date, appointment.time) && (
+                                      <button
+                                        className="text-red-600 hover:text-red-700"
+                                        onClick={() => {
+                                          setAppointmentToCancel(appointment);
+                                          setShowCancelDialog(true);
+                                        }}
+                                      >
+                                        Cancel
+                                      </button>
+                                    )}
+      {/* Cancel Confirmation Dialog */}
+      <AlertDialog open={showCancelDialog} onOpenChange={setShowCancelDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cancel this appointment?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to cancel the appointment with {appointmentToCancel?.userName} on {appointmentToCancel?.date} at {appointmentToCancel?.time}? This action cannot be undone and the admin will be notified.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Back</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700"
+              onClick={async () => {
+                if (!appointmentToCancel) return;
+                const appointmentRef = ref(db, `appointments/${appointmentToCancel.id}`);
+                // Set status to 'pending', clear doctorId/doctorName so admin can reassign
+                await update(appointmentRef, {
+                  status: 'pending',
+                  doctorId: '',
+                  doctorName: '',
+                  updatedAt: Date.now(),
+                });
+                // Notify admin (in-app)
+                const adminId = 'admin'; // Use actual admin UID if available
+                const { createNotification } = await import('@/lib/notifications');
+                await createNotification({
+                  recipientId: adminId,
+                  recipientType: 'admin',
+                  title: 'Doctor Cancelled Appointment',
+                  message: `Doctor ${appointmentToCancel.doctorName} cancelled appointment with ${appointmentToCancel.userName} on ${appointmentToCancel.date} at ${appointmentToCancel.time}. The appointment is now pending and needs a new doctor assigned.`,
+                  type: 'appointment_doctor_cancelled',
+                  relatedTo: { type: 'appointment', id: appointmentToCancel.id }
+                });
+                // Email notification to admin
+                try {
+                  const { sendAppointmentCancellationEmails } = await import('@/services/emailService');
+                  await sendAppointmentCancellationEmails({
+                    patientName: appointmentToCancel.userName,
+                    patientEmail: appointmentToCancel.userEmail || '',
+                    doctorEmail: user?.email || '',
+                    adminEmail: 'saiaravindanstudiesonly@gmail.com',
+                    date: appointmentToCancel.date,
+                    time: appointmentToCancel.time,
+                    appointmentId: appointmentToCancel.id,
+                    doctorName: appointmentToCancel.doctorName,
+                    consultationType: appointmentToCancel.consultationType,
+                    cancellationReason: 'Doctor cancelled the appointment. Needs reassignment.'
+                  });
+                } catch (e) {
+                  console.error('Failed to send admin cancellation email:', e);
+                }
+                setShowCancelDialog(false);
+                setAppointmentToCancel(null);
+                toast({
+                  title: 'Appointment Needs Reassignment',
+                  description: 'The appointment is now pending and the admin has been notified to assign a new doctor.',
+                  variant: 'destructive',
+                });
+                refreshAppointments();
+              }}
+            >
+              Yes, Cancel & Reassign
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
                                   </div>
                                 </td>
                               </tr>

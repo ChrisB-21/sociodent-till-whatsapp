@@ -1,5 +1,5 @@
 import React from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, Link } from 'react-router-dom';
 import { Home as HomeIcon, MapPin, Video, ChevronRight, CreditCard, Banknote } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,6 +12,7 @@ const Consultation = () => {
 	const location = useLocation();
 	const searchParams = new URLSearchParams(location.search);
 	const initialType = searchParams.get('type') as ConsultationType || 'virtual';
+	const rescheduleAppointmentId = searchParams.get('reschedule'); // Check if this is a reschedule
 
 	const {
 		// State
@@ -42,12 +43,15 @@ const Consultation = () => {
 		availableTimeSlots,
 		availablePaymentMethods,
 		selectedConsultation,
-	} = useConsultationBooking({ initialConsultationType: initialType });
+	} = useConsultationBooking({ 
+		initialConsultationType: initialType,
+		rescheduleAppointmentId: rescheduleAppointmentId 
+	});
 
 	// Date constraints for the date input
 	const dateConstraints = {
-		minDate: new Date().toISOString().split('T')[0], // Today
-		maxDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] // 30 days from now
+		minDate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 2 days from now
+		maxDate: new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] // 60 days (2 months) from now
 	};
 
 	// Create consultation type icons mapping
@@ -102,7 +106,19 @@ const Consultation = () => {
 							<div className="glass-card border border-white/50 rounded-2xl overflow-hidden shadow-md bg-white">
 								{step === 1 && (
 									<div className="p-6">
-										<h1 className="text-2xl font-bold text-gray-900 mb-6">Book Your Consultation</h1>
+										<h1 className="text-2xl font-bold text-gray-900 mb-6">
+											{rescheduleAppointmentId ? 'Reschedule Your Appointment' : 'Book Your Consultation'}
+										</h1>
+
+										{/* Reschedule Information */}
+										{rescheduleAppointmentId && (
+											<div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+												<p className="text-blue-800">
+													<span className="mr-2">🔄</span>
+													You are rescheduling appointment #{rescheduleAppointmentId.slice(-8)}
+												</p>
+											</div>
+										)}
 
 										{/* Incomplete Appointments Warning */}
 										{isCheckingAppointments && (
@@ -116,20 +132,57 @@ const Consultation = () => {
 
 										{hasIncompleteAppointments && incompleteAppointments.length > 0 && (
 											<div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
-												<h3 className="text-red-800 font-semibold mb-2">⚠️ Cannot Book New Appointment</h3>
+												<h3 className="text-red-800 font-semibold mb-2 flex items-center">
+													<span className="mr-2">⚠️</span>
+													Cannot Book New Appointment
+												</h3>
 												<p className="text-red-700 mb-3">
-													You have {incompleteAppointments.length} incomplete appointment{incompleteAppointments.length > 1 ? 's' : ''} that must be completed before booking a new one:
+													You have {incompleteAppointments.length} incomplete appointment{incompleteAppointments.length > 1 ? 's' : ''} that must be completed or cancelled before booking a new one:
 												</p>
-												<ul className="list-disc list-inside text-red-700 space-y-1">
-													{incompleteAppointments.map((appointment, index) => (
-														<li key={index}>
-															{appointment.consultationType} consultation on {appointment.date} at {appointment.time} 
-															{appointment.status && ` (Status: ${appointment.status})`}
-														</li>
-													))}
-												</ul>
-												<p className="text-red-700 mt-3 font-medium">
-													Please complete your existing appointment(s) before booking a new one.
+												<div className="bg-white border border-red-200 rounded-md p-3 mb-3">
+													<ul className="space-y-2">
+														{incompleteAppointments.map((appointment, index) => (
+															<li key={index} className="text-sm">
+																<div className="flex items-center justify-between">
+																	<div>
+																		<span className="font-medium">{appointment.consultationType || 'Consultation'}</span>
+																		<span className="text-gray-600 ml-2">
+																			{appointment.date} at {appointment.time}
+																		</span>
+																	</div>
+																	<span className={`px-2 py-1 text-xs rounded-full ${
+																		appointment.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
+																		appointment.status === 'confirmed' ? 'bg-blue-100 text-blue-800' :
+																		'bg-gray-100 text-gray-800'
+																	}`}>
+																		{appointment.status || 'Pending'}
+																	</span>
+																</div>
+																{appointment.doctorName && (
+																	<div className="text-xs text-gray-500 mt-1">
+																		Doctor: {appointment.doctorName}
+																	</div>
+																)}
+															</li>
+														))}
+													</ul>
+												</div>
+												<div className="flex flex-col sm:flex-row gap-2">
+													<Link 
+														to="/my-profile" 
+														className="px-4 py-2 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 text-center transition-colors"
+													>
+														View My Appointments
+													</Link>
+													<button
+														onClick={() => window.location.reload()}
+														className="px-4 py-2 bg-gray-600 text-white text-sm rounded hover:bg-gray-700 transition-colors"
+													>
+														Refresh Status
+													</button>
+												</div>
+												<p className="text-red-700 mt-3 text-sm">
+													<strong>Note:</strong> This restriction ensures proper scheduling and prevents booking conflicts. Once your current appointment is completed or cancelled, you'll be able to book a new appointment.
 												</p>
 											</div>
 										)}
@@ -196,6 +249,9 @@ const Consultation = () => {
 														required
 														disabled={hasIncompleteAppointments}
 													/>
+													<p className="text-sm text-gray-600 mt-1">
+														📅 Appointments can be booked from 2 days ahead up to 2 months in advance
+													</p>
 												</div>
 												<div>
 													<Label htmlFor="time">Preferred Time *</Label>

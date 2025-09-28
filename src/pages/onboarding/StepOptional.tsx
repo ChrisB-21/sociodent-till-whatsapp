@@ -1,14 +1,10 @@
-import React, { useState } from 'react';
 
-interface FileData {
-  prescriptions?: File;
-  xrays?: File;
-  profilePhoto?: File;
-}
+import React from 'react';
+import { initialData } from './Onboarding';
 
 interface StepOptionalProps {
-  data: any;
-  updateData: (data: Partial<FileData>) => void;
+  data: typeof initialData;
+  updateData: (data: Partial<typeof initialData>) => void;
   prevStep: () => void;
   onSubmit: () => void;
   isSubmitting?: boolean;
@@ -27,12 +23,9 @@ const StepOptional: React.FC<StepOptionalProps> = ({
   onSubmit,
   isSubmitting = false
 }) => {
-  const handleSkipAndFinish = () => {
-    // Skip file uploads and proceed to finish registration
-    onSubmit();
-  };
 
-  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>, field: keyof FileData) => {
+
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>, field: "prescriptions" | "xrays" | "profilePhoto") => {
     const file = event.target.files?.[0];
     if (file) {
       // Validate file type
@@ -48,11 +41,11 @@ const StepOptional: React.FC<StepOptionalProps> = ({
         return;
       }
 
-      updateData({ [field]: file });
+  updateData({ [field]: file });
     }
   };
 
-  const fileInputs: { label: string; field: keyof FileData }[] = [
+  const fileInputs: { label: string; field: "prescriptions" | "xrays" | "profilePhoto" }[] = [
     { label: 'Previous Prescriptions (PDF/JPG)', field: 'prescriptions' },
     { label: 'Dental X-rays (JPG/PNG)', field: 'xrays' },
     { label: 'Profile Photo', field: 'profilePhoto' }

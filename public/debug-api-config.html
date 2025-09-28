@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API Configuration Debug</title>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            padding: 20px; 
+            max-width: 800px; 
+            margin: 0 auto; 
+        }
+        .result { 
+            margin: 20px 0; 
+            padding: 15px; 
+            border-radius: 5px; 
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+        }
+        pre { 
+            background-color: #f8f9fa; 
+            padding: 10px; 
+            border-radius: 4px; 
+            overflow-x: auto; 
+        }
+        button { 
+            padding: 10px 20px; 
+            margin: 10px 5px; 
+            border: none; 
+            border-radius: 5px; 
+            cursor: pointer; 
+            background-color: #007bff; 
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔧 API Configuration Debug</h1>
+    
+    <div class="result">
+        <h3>Environment Variables</h3>
+        <pre id="env-vars">Loading...</pre>
+    </div>
+    
+    <div class="result">
+        <h3>Current API Configuration</h3>
+        <pre id="api-config">Loading...</pre>
+    </div>
+    
+    <button onclick="testApiEndpoint()">Test OTP Endpoint</button>
+    <button onclick="refreshConfig()">Refresh Config</button>
+    
+    <div id="test-result" class="result" style="display: none;">
+        <h3>API Test Result</h3>
+        <pre id="test-output"></pre>
+    </div>
+
+    <script type="module">
+        function displayEnvVars() {
+            const envVars = {
+                VITE_API_BASE: import.meta.env.VITE_API_BASE,
+                VITE_API_URL: import.meta.env.VITE_API_URL,
+                BASE_URL: import.meta.env.BASE_URL,
+                MODE: import.meta.env.MODE,
+                DEV: import.meta.env.DEV,
+                PROD: import.meta.env.PROD
+            };
+            
+            document.getElementById('env-vars').textContent = JSON.stringify(envVars, null, 2);
+        }
+        
+        async function displayApiConfig() {
+            try {
+                // Import the API configuration
+                const { API_ENDPOINTS } = await import('/src/config/api.ts');
+                document.getElementById('api-config').textContent = JSON.stringify(API_ENDPOINTS, null, 2);
+            } catch (error) {
+                document.getElementById('api-config').textContent = 'Error loading API config: ' + error.message;
+            }
+        }
+        
+        window.testApiEndpoint = async function() {
+            const resultDiv = document.getElementById('test-result');
+            const outputDiv = document.getElementById('test-output');
+            
+            resultDiv.style.display = 'block';
+            outputDiv.textContent = 'Testing...';
+            
+            try {
+                const { API_ENDPOINTS } = await import('/src/config/api.ts');
+                const response = await fetch(API_ENDPOINTS.OTP.SEND, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        email: 'debug@test.com'
+                    })
+                });
+                
+                const result = await response.json();
+                outputDiv.textContent = `Status: ${response.status}\nResponse: ${JSON.stringify(result, null, 2)}`;
+            } catch (error) {
+                outputDiv.textContent = 'Error: ' + error.message;
+            }
+        };
+        
+        window.refreshConfig = function() {
+            displayEnvVars();
+            displayApiConfig();
+        };
+        
+        // Initial load
+        displayEnvVars();
+        displayApiConfig();
+    </script>
+</body>
+</html>

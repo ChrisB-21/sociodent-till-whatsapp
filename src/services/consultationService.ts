@@ -1,12 +1,10 @@
 // Consultation Service - Handles appointment booking and data management
 import { db } from '@/firebase';
-import { sendPaymentReceiptEmail } from '@/services/emailService';
 import { ref, push, set, get, update, query, orderByChild, equalTo } from 'firebase/database';
 import { fileUploadService, FileUploadService } from './fileUploadService';
 import { sendAppointmentConfirmationEmail } from '@/services/emailService';
 
 export type ConsultationType = 'virtual' | 'home' | 'clinic';
-export type PaymentMethod = 'razorpay' | 'cash';
 export type AppointmentStatus = 'pending' | 'confirmed' | 'completed' | 'cancelled';
 
 export interface ConsultationOption {
@@ -25,8 +23,6 @@ export interface AppointmentData {
   time: string;
   symptoms: string;
   hasReport: boolean;
-  paymentMethod: PaymentMethod;
-  paymentAmount: number;
   status: AppointmentStatus;
   createdAt: number;
   address?: string;
@@ -77,19 +73,19 @@ export class ConsultationService {
         type: 'virtual',
         title: 'Virtual Consultation',
         description: 'Connect with a dentist via video call without leaving your home',
-        price: 2,
+        price: 1.00
       },
       {
         type: 'home',
         title: 'Home Visit',
         description: 'Have a qualified dentist visit your home for consultation',
-        price: 1499,
+        price: 1.00
       },
       {
         type: 'clinic',
         title: 'Clinic Consultation',
         description: 'Visit our dental clinic for a comprehensive consultation',
-        price: 999,
+        price: 1.00
       },
     ];
   }
@@ -129,8 +125,9 @@ export class ConsultationService {
         }
         return timeSlots.filter(slot => {
           // Parse slot hour
-          let [slotHour, slotMin] = slot.split(':');
-          let [hour, period] = [parseInt(slotHour), slot.includes('PM') ? 'PM' : 'AM'];
+          const [slotHour] = slot.split(':');
+          let hour = parseInt(slotHour);
+          const period = slot.includes('PM') ? 'PM' : 'AM';
           if (period === 'PM' && hour !== 12) hour += 12;
           if (period === 'AM' && hour === 12) hour = 0;
           return hour >= minHour && hour <= 18; // Only allow up to 6:00 PM
@@ -139,8 +136,9 @@ export class ConsultationService {
     }
     // For other days, only allow up to 6:00 PM
     return timeSlots.filter(slot => {
-      let [slotHour, slotMin] = slot.split(':');
-      let [hour, period] = [parseInt(slotHour), slot.includes('PM') ? 'PM' : 'AM'];
+      const [slotHour] = slot.split(':');
+      let hour = parseInt(slotHour);
+      const period = slot.includes('PM') ? 'PM' : 'AM';
       if (period === 'PM' && hour !== 12) hour += 12;
       if (period === 'AM' && hour === 12) hour = 0;
       return hour <= 18;
@@ -211,13 +209,9 @@ export class ConsultationService {
       }
 
       const appointmentsRef = ref(db, 'appointments');
-      const userAppointmentsQuery = query(
-        appointmentsRef,
-        orderByChild('userId'),
-        equalTo(currentUserId)
-      );
       
-      const appointmentsSnapshot = await get(userAppointmentsQuery);
+      // Get all appointments first, then filter (to handle different field patterns)
+      const appointmentsSnapshot = await get(appointmentsRef);
       
       if (!appointmentsSnapshot.exists()) {
         return { hasIncomplete: false };
@@ -229,9 +223,30 @@ export class ConsultationService {
         ...data
       }));
 
-      const incompleteAppointments = appointmentsList.filter((appointment: any) =>
-        appointment.status && appointment.status !== 'completed' && appointment.status !== 'cancelled'
-      );
+      // Filter appointments that belong to this user (using multiple criteria for robustness)
+      const userAppointments = appointmentsList.filter((appointment: any) => {
+        return (
+          appointment.userId === currentUserId || 
+          appointment.patientId === currentUserId ||
+          appointment.userEmail === localStorage.getItem('userEmail')
+        );
+      });
+
+      // Define incomplete statuses that should block new appointments
+      const incompleteStatuses = ['pending', 'confirmed', 'assigned', 'scheduled'];
+      
+      const incompleteAppointments = userAppointments.filter((appointment: any) => {
+        const status = appointment.status?.toLowerCase() || 'pending';
+        return incompleteStatuses.includes(status);
+      });
+
+      console.log('Incomplete appointments check:', {
+        userId: currentUserId,
+        totalUserAppointments: userAppointments.length,
+        incompleteAppointments: incompleteAppointments.length,
+        incompleteStatuses,
+        appointments: incompleteAppointments
+      });
 
       return {
         hasIncomplete: incompleteAppointments.length > 0,
@@ -289,34 +304,80 @@ export class ConsultationService {
   public async saveAppointment(
     formData: BookingFormData,
     consultationType: ConsultationType,
-    paymentMethod: PaymentMethod
+    rescheduleAppointmentId?: string
   ): Promise<BookingResult> {
     try {
+      // Validate appointment date constraints
+      const appointmentDate = new Date(formData.date);
+      const today = new Date();
+      const minDate = new Date(today.getTime() + 2 * 24 * 60 * 60 * 1000); // 2 days from now
+      const maxDate = new Date(today.getTime() + 60 * 24 * 60 * 60 * 1000); // 60 days from now
+
+      // Reset time to start of day for accurate comparison
+      appointmentDate.setHours(0, 0, 0, 0);
+      minDate.setHours(0, 0, 0, 0);
+      maxDate.setHours(0, 0, 0, 0);
+
+      if (appointmentDate < minDate) {
+        return {
+          success: false,
+          error: 'Appointments can only be booked starting from 2 days in advance. Please select a date at least 2 days from today.',
+          appointmentId: undefined,
+        };
+      }
+
+      if (appointmentDate > maxDate) {
+        return {
+          success: false,
+          error: 'Appointments can only be booked up to 2 months in advance. Please select an earlier date.',
+          appointmentId: undefined,
+        };
+      }
+
       // Get user information
       const userId = localStorage.getItem('userId') || localStorage.getItem('uid') || 'anonymous';
       const userEmail = localStorage.getItem('userEmail') || '';
 
-      // Check for existing non-completed appointments
-      if (userId !== 'anonymous') {
+      // Check for existing non-completed appointments (skip if reschedule)
+      if (userId !== 'anonymous' && !rescheduleAppointmentId) {
         try {
           const appointmentsRef = ref(db, 'appointments');
-          const userAppointmentsQuery = query(
-            appointmentsRef,
-            orderByChild('userId'),
-            equalTo(userId)
-          );
-          const appointmentsSnapshot = await get(userAppointmentsQuery);
+          const appointmentsSnapshot = await get(appointmentsRef);
           
           if (appointmentsSnapshot.exists()) {
             const appointments = appointmentsSnapshot.val();
-            const hasIncompleteAppointment = Object.values(appointments).some((appointment: any) => 
-              appointment.status && appointment.status !== 'completed' && appointment.status !== 'cancelled'
-            );
+            
+            // Filter appointments that belong to this user (using multiple criteria for robustness)
+            const userAppointments = Object.values(appointments).filter((appointment: any) => {
+              return (
+                appointment.userId === userId || 
+                appointment.patientId === userId ||
+                appointment.userEmail === userEmail
+              );
+            });
+
+            // Define incomplete statuses that should block new appointments
+            const incompleteStatuses = ['pending', 'confirmed', 'assigned', 'scheduled'];
+            
+            const hasIncompleteAppointment = userAppointments.some((appointment: any) => {
+              const status = appointment.status?.toLowerCase() || 'pending';
+              return incompleteStatuses.includes(status);
+            });
             
             if (hasIncompleteAppointment) {
+              console.log('Blocking appointment booking - user has incomplete appointments:', {
+                userId,
+                userEmail,
+                userAppointments: userAppointments.length,
+                incompleteCount: userAppointments.filter((apt: any) => {
+                  const status = apt.status?.toLowerCase() || 'pending';
+                  return incompleteStatuses.includes(status);
+                }).length
+              });
+              
               return {
                 success: false,
-                error: 'You cannot book a new appointment while you have pending appointments. Please wait for your current appointment to be completed.',
+                error: 'You cannot book a new appointment while you have pending appointments. Please wait for your current appointment to be completed or cancelled.',
                 appointmentId: undefined,
               };
             }
@@ -358,8 +419,6 @@ export class ConsultationService {
         time: formData.time,
         symptoms: formData.symptoms,
         hasReport: formData.hasReport,
-        paymentMethod,
-        paymentAmount: consultation.price,
         status: 'pending',
         createdAt: Date.now(),
       };
@@ -396,13 +455,26 @@ export class ConsultationService {
       }
 
       // Save to Firebase
-      const appointmentsRef = ref(db, 'appointments');
-      const newAppointmentRef = push(appointmentsRef);
-      await set(newAppointmentRef, appointmentData);
-
-      const appointmentId = newAppointmentRef.key;
-      if (!appointmentId) {
-        throw new Error('Failed to create appointment record');
+      let appointmentId: string;
+      if (rescheduleAppointmentId) {
+        // Update existing appointment for reschedule
+        const existingAppointmentRef = ref(db, `appointments/${rescheduleAppointmentId}`);
+        await update(existingAppointmentRef, {
+          ...appointmentData,
+          updatedAt: Date.now(),
+          previousDate: (await get(existingAppointmentRef)).val()?.date,
+          previousTime: (await get(existingAppointmentRef)).val()?.time
+        });
+        appointmentId = rescheduleAppointmentId;
+      } else {
+        // Create new appointment
+        const appointmentsRef = ref(db, 'appointments');
+        const newAppointmentRef = push(appointmentsRef);
+        await set(newAppointmentRef, appointmentData);
+        appointmentId = newAppointmentRef.key;
+        if (!appointmentId) {
+          throw new Error('Failed to create appointment record');
+        }
       }
 
       // DO NOT assign doctor automatically. Admin will assign manually.
@@ -419,9 +491,7 @@ export class ConsultationService {
           date: formData.date,
           time: formData.time,
           consultationType,
-          symptoms: formData.symptoms,
-          paymentAmount: consultation.price,
-          paymentMethod
+          symptoms: formData.symptoms
         });
         console.log('Enhanced admin notification sent successfully');
       } catch (adminEmailError) {
@@ -439,33 +509,13 @@ export class ConsultationService {
           consultationType,
           doctorName: undefined, // No doctor assigned yet
           doctorSpecialization: undefined,
-          paymentMethod,
-          paymentAmount: consultation.price,
           appointmentId,
         });
       } catch (emailError) {
         console.error('Error sending appointment confirmation email:', emailError);
       }
 
-      // After payment, send payment receipt email
-      try {
-        // If you have a paymentId from your payment gateway, replace 'PAYMENT_ID_HERE' with the real value
-        await sendPaymentReceiptEmail({
-          patientName: formData.name,
-          patientEmail: userEmail,
-          date: formData.date,
-          time: formData.time,
-          consultationType,
-          doctorName: undefined, // No doctor assigned yet
-          doctorSpecialization: undefined,
-          paymentMethod,
-          paymentAmount: consultation.price,
-          paymentId: 'DUMMY_PAYMENT_ID', // Dummy payment ID for testing
-          appointmentId,
-        });
-      } catch (paymentEmailError) {
-        console.error('Error sending payment receipt email:', paymentEmailError);
-      }
+
 
       // Save phone number for future use
       if (formData.phone) {
@@ -506,6 +556,25 @@ export class ConsultationService {
   public getConsultationDisplayText(type: ConsultationType): string {
     const consultation = this.getConsultationByType(type);
     return consultation?.title || type;
+  }
+
+  /**
+   * Get appointment details by ID
+   */
+  public async getAppointmentById(appointmentId: string): Promise<any | null> {
+    try {
+      const appointmentRef = ref(db, `appointments/${appointmentId}`);
+      const snapshot = await get(appointmentRef);
+      
+      if (snapshot.exists()) {
+        return { id: appointmentId, ...snapshot.val() };
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('Error fetching appointment:', error);
+      return null;
+    }
   }
 }
 

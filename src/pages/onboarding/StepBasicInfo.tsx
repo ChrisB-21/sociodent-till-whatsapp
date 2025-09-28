@@ -1,25 +1,42 @@
-import React, { useState } from "react";
+import React, { useState, ChangeEvent, FormEvent } from "react";
 import OtpVerification from "@/components/auth/OtpVerification";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
+import { getStates, getDistricts, getCities, getLocalities, getAreas } from '@/utils/locationUtils';
 
 /**
  * Note: This component has been replaced with integrated OTP verification
  * in the main Onboarding.tsx file. This file is kept for reference but is no longer used.
  */
-const StepBasicInfo = ({ data, updateData, nextStep }) => {  const [local, setLocal] = useState({
+interface StepBasicInfoProps {
+  data: any;
+  updateData: (data: any) => void;
+  nextStep: () => void;
+}
+
+const StepBasicInfo: React.FC<StepBasicInfoProps> = ({ data, updateData, nextStep }) => {
+  const [local, setLocal] = useState({
     fullName: data.fullName || "",
     age: data.age || "",
     gender: data.gender || "",
     phone: data.phone || "",
-    city: data.city || "",
     state: data.state || "",
-    pincode: data.pincode || "",
+    district: data.district || "",
+    city: data.city || "",
+    locality: data.locality || "",
     area: data.area || "",
+    pincode: data.pincode || "",
   });
+  // Location dropdown state
+  const [selectedState, setSelectedState] = useState(local.state || "");
+  const [selectedDistrict, setSelectedDistrict] = useState(local.district || "");
+  const [selectedCity, setSelectedCity] = useState(local.city || "");
+  const [selectedLocality, setSelectedLocality] = useState(local.locality || "");
+  const [selectedArea, setSelectedArea] = useState(local.area || "");
   const [showOtpVerification, setShowOtpVerification] = useState(false);
   const [phoneVerified, setPhoneVerified] = useState(data.phoneVerified || false);
   const [verificationError, setVerificationError] = useState("");
 
-  const handleChange = (e) => {
+  const handleChange = (e: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     setLocal({ ...local, [name]: value });
     
@@ -29,7 +46,7 @@ const StepBasicInfo = ({ data, updateData, nextStep }) => {  const [local, setLo
     }
   };
 
-  const handleStartVerification = (e) => {
+  const handleStartVerification = (e: FormEvent) => {
     e.preventDefault();
     
     // Validate phone number
@@ -52,11 +69,11 @@ const StepBasicInfo = ({ data, updateData, nextStep }) => {  const [local, setLo
     setShowOtpVerification(false);
   };
 
-  const handleVerificationError = (error) => {
+  const handleVerificationError = (error: string) => {
     setVerificationError(error);
   };
 
-  const handleNext = (e) => {
+  const handleNext = (e: FormEvent) => {
     e.preventDefault();
     
     // Validate phone verification
@@ -120,9 +137,100 @@ const StepBasicInfo = ({ data, updateData, nextStep }) => {  const [local, setLo
         )}
       </div>
       
-      <input name="city" placeholder="City" value={local.city} onChange={handleChange} required className="w-full border rounded px-3 py-2" />
-      <input name="state" placeholder="State" value={local.state} onChange={handleChange} required className="w-full border rounded px-3 py-2" />
-      <input name="area" placeholder="Area/Locality" value={local.area} onChange={handleChange} required className="w-full border rounded px-3 py-2" />
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div>
+          <label className="block mb-1 font-medium" htmlFor="state-select">State *</label>
+          <Select value={selectedState} onValueChange={(value) => {
+            setSelectedState(value);
+            setSelectedDistrict("");
+            setSelectedCity("");
+            setSelectedLocality("");
+            setSelectedArea("");
+            setLocal(l => ({ ...l, state: value, district: "", city: "", locality: "", area: "" }));
+          }}>
+            <SelectTrigger id="state-select">
+              <SelectValue placeholder="Select State" />
+            </SelectTrigger>
+            <SelectContent>
+              {getStates().map((state) => (
+                <SelectItem key={state} value={state}>{state}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div>
+          <label className="block mb-1 font-medium" htmlFor="district-select">District *</label>
+          <Select value={selectedDistrict} onValueChange={(value) => {
+            setSelectedDistrict(value);
+            setSelectedCity("");
+            setSelectedLocality("");
+            setSelectedArea("");
+            setLocal(l => ({ ...l, district: value, city: "", locality: "", area: "" }));
+          }} disabled={!selectedState}>
+            <SelectTrigger id="district-select">
+              <SelectValue placeholder="Select District" />
+            </SelectTrigger>
+            <SelectContent>
+              {getDistricts(selectedState).map((district) => (
+                <SelectItem key={district} value={district}>{district}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div>
+          <label className="block mb-1 font-medium" htmlFor="city-select">City *</label>
+          <Select value={selectedCity} onValueChange={(value) => {
+            setSelectedCity(value);
+            setSelectedLocality("");
+            setSelectedArea("");
+            setLocal(l => ({ ...l, city: value, locality: "", area: "" }));
+          }} disabled={!selectedDistrict}>
+            <SelectTrigger id="city-select">
+              <SelectValue placeholder="Select City" />
+            </SelectTrigger>
+            <SelectContent>
+              {getCities(selectedState, selectedDistrict).map((city) => (
+                <SelectItem key={city} value={city}>{city}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+        <div>
+          <label className="block mb-1 font-medium" htmlFor="locality-select">Locality *</label>
+          <Select value={selectedLocality} onValueChange={(value) => {
+            setSelectedLocality(value);
+            setSelectedArea("");
+            setLocal(l => ({ ...l, locality: value, area: "" }));
+          }} disabled={!selectedCity}>
+            <SelectTrigger id="locality-select">
+              <SelectValue placeholder="Select Locality" />
+            </SelectTrigger>
+            <SelectContent>
+              {getLocalities(selectedState, selectedDistrict, selectedCity).map((locality) => (
+                <SelectItem key={locality} value={locality}>{locality}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div>
+          <label className="block mb-1 font-medium" htmlFor="area-select">Area *</label>
+          <Select value={selectedArea} onValueChange={(value) => {
+            setSelectedArea(value);
+            setLocal(l => ({ ...l, area: value }));
+          }} disabled={!selectedLocality}>
+            <SelectTrigger id="area-select">
+              <SelectValue placeholder="Select Area" />
+            </SelectTrigger>
+            <SelectContent>
+              {getAreas(selectedState, selectedDistrict, selectedCity, selectedLocality).map((area) => (
+                <SelectItem key={area} value={area}>{area}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
       <input name="pincode" placeholder="Pincode" value={local.pincode} onChange={handleChange} required className="w-full border rounded px-3 py-2" />
       <button
         type="submit"

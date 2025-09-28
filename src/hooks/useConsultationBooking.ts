@@ -3,44 +3,41 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useToast } from '@/hooks/use-toast';
 import { 
-  consultationService, 
-  ConsultationType, 
-  PaymentMethod, 
-  BookingFormData, 
-  BookingResult 
+  consultationService,
+  type ConsultationType, 
+  type BookingFormData, 
+  type BookingResult,
+  type ConsultationOption 
 } from '@/services/consultationService';
-import { 
-  paymentService, 
-  PaymentData, 
-  PaymentResult 
-} from '@/services/paymentService';
 
 export type BookingStep = 1 | 2 | 3;
 
 export interface UseConsultationBookingProps {
   initialConsultationType?: ConsultationType;
+  rescheduleAppointmentId?: string | null;
 }
 
 export interface UseConsultationBookingReturn {
   // State
   step: BookingStep;
   consultationType: ConsultationType;
-  paymentMethod: PaymentMethod;
-  isProcessingPayment: boolean;
   showReportWarning: boolean;
   hasIncompleteAppointments: boolean;
   incompleteAppointments: any[];
   isCheckingAppointments: boolean;
+  paymentMethod: string;
+  isProcessingPayment: boolean;
   
   // Form data
   formData: BookingFormData;
+  availablePaymentMethods: { id: string; name: string; available: boolean; }[];
   
   // Methods
   setStep: (step: BookingStep) => void;
   setConsultationType: (type: ConsultationType) => void;
-  setPaymentMethod: (method: PaymentMethod) => void;
   setFormData: (data: Partial<BookingFormData>) => void;
   setShowReportWarning: (show: boolean) => void;
+  setPaymentMethod: (method: 'razorpay' | 'cash') => void;
   
   // Actions
   handleContinue: () => Promise<void>;
@@ -48,15 +45,15 @@ export interface UseConsultationBookingReturn {
   handleReturnHome: () => void;
   
   // Data
-  consultationTypes: ReturnType<typeof consultationService.getConsultationTypes>;
+  consultationTypes: ConsultationOption[];
   availableTimeSlots: string[];
-  dateConstraints: ReturnType<typeof consultationService.getDateConstraints>;
-  availablePaymentMethods: ReturnType<typeof paymentService.getAvailablePaymentMethods>;
-  selectedConsultation: ReturnType<typeof consultationService.getConsultationByType>;
+  dateConstraints: { minDate: string; maxDate: string };
+  selectedConsultation?: ConsultationOption;
 }
 
 export const useConsultationBooking = ({
-  initialConsultationType = 'virtual'
+  initialConsultationType = 'virtual',
+  rescheduleAppointmentId = null
 }: UseConsultationBookingProps = {}): UseConsultationBookingReturn => {
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -64,18 +61,21 @@ export const useConsultationBooking = ({
   // State
   const [step, setStep] = useState<BookingStep>(1);
   const [consultationType, setConsultationType] = useState<ConsultationType>(initialConsultationType);
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('razorpay');
-  const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [showReportWarning, setShowReportWarning] = useState(false);
   const [hasIncompleteAppointments, setHasIncompleteAppointments] = useState(false);
   const [incompleteAppointments, setIncompleteAppointments] = useState<any[]>([]);
   const [isCheckingAppointments, setIsCheckingAppointments] = useState(true);
+  const [paymentMethod, setPaymentMethod] = useState<'razorpay' | 'cash'>('razorpay');
+  const [isProcessingPayment, setIsProcessingPayment] = useState(false);
+  
+  // Determine if this is a reschedule (which should bypass incomplete appointment blocking)
+  const isReschedule = Boolean(rescheduleAppointmentId);
 
   // Form data
   const [formData, setFormDataState] = useState<BookingFormData>({
     name: '',
     phone: localStorage.getItem('lastUsedPhone') || '',
-    date: new Date().toISOString().split('T')[0],
+    date: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 2 days from now
     time: '9:00 AM',
     address: '',
     symptoms: '',
@@ -83,16 +83,20 @@ export const useConsultationBooking = ({
     reportFile: null,
   });
 
-  // Initialize payment SDK on mount
-  useEffect(() => {
-    paymentService.initializePaymentSDK();
-  }, []);
-
-  // Check for incomplete appointments on mount
+  // No payment initialization needed
+  // Check for incomplete appointments on mount (skip if reschedule)
   useEffect(() => {
     const checkIncompleteAppointments = async () => {
       try {
         setIsCheckingAppointments(true);
+        
+        // Skip incomplete appointment check if this is a reschedule
+        if (isReschedule) {
+          setHasIncompleteAppointments(false);
+          setIncompleteAppointments([]);
+          return;
+        }
+        
         const result = await consultationService.hasIncompleteAppointments();
         setHasIncompleteAppointments(result.hasIncomplete);
         setIncompleteAppointments(result.appointments || []);
@@ -107,7 +111,7 @@ export const useConsultationBooking = ({
     };
 
     checkIncompleteAppointments();
-  }, []);
+  }, [isReschedule]);
 
   // Update form data
   const setFormData = (data: Partial<BookingFormData>) => {
@@ -119,89 +123,41 @@ export const useConsultationBooking = ({
   // Pass selected date to getAvailableTimeSlots for dynamic filtering
   const availableTimeSlots = consultationService.getAvailableTimeSlots(formData.date);
   const dateConstraints = consultationService.getDateConstraints();
-  const availablePaymentMethods = paymentService.getAvailablePaymentMethods(consultationType);
   const selectedConsultation = consultationService.getConsultationByType(consultationType);
 
-  // Handle Razorpay payment
-  const handleRazorpayPayment = async (): Promise<boolean> => {
-    try {
-      setIsProcessingPayment(true);
-
-      if (!selectedConsultation) {
-        throw new Error('Invalid consultation type selected');
-      }
-
-      const paymentData: PaymentData = {
-        amount: selectedConsultation.price,
-        consultationType,
-        customerInfo: {
-          name: formData.name,
-          email: '',
-          phone: formData.phone,
-        },
-        appointmentDetails: {
-          date: formData.date,
-          time: formData.time,
-          address: formData.address,
-        },
-      };
-
-      const paymentResult: PaymentResult = await paymentService.processRazorpayPayment(paymentData);
-
-      if (!paymentResult.success) {
-        throw new Error(paymentResult.error || 'Payment processing failed');
-      }
-
-      return true;
-
-    } catch (error: any) {
-      console.error("Payment failed:", error);
-      toast({
-        title: "Payment Failed",
-        description: error.message || "There was an error processing your payment. Please try again.",
-        variant: "destructive",
-      });
-      return false;
-    } finally {
-      setIsProcessingPayment(false);
-    }
-  };
-
   // Handle appointment booking
-  const handleBookingSubmission = async (paymentMethodToUse: PaymentMethod): Promise<boolean> => {
+  const handleBookingSubmission = async (): Promise<boolean> => {
     try {
+      // Double-check for incomplete appointments before booking (skip if reschedule)
+      if (!isReschedule) {
+        const incompleteCheck = await consultationService.hasIncompleteAppointments();
+        if (incompleteCheck.hasIncomplete) {
+          throw new Error('You cannot book a new appointment while you have pending appointments. Please complete or cancel your existing appointments first.');
+        }
+      }
+
       const bookingResult: BookingResult = await consultationService.saveAppointment(
         formData,
         consultationType,
-        paymentMethodToUse
+        rescheduleAppointmentId || undefined
       );
 
       if (!bookingResult.success) {
         throw new Error(bookingResult.error || 'Failed to save appointment');
       }
 
-      const paymentMethodText = paymentMethodToUse === 'razorpay' ? 'Payment Successful' : 'Success!';
-      const descriptionText = paymentMethodToUse === 'razorpay' 
-        ? 'Your consultation has been booked successfully.'
-        : 'Your appointment has been booked successfully.';
-
       toast({
-        title: paymentMethodText,
-        description: descriptionText,
+        title: 'Success!',
+        description: 'Your appointment has been booked successfully.',
       });
 
       return true;
 
     } catch (error: any) {
       console.error("Booking failed:", error);
-      const errorTitle = paymentMethodToUse === 'razorpay' ? 'Payment Failed' : 'Error';
-      const errorDescription = paymentMethodToUse === 'razorpay'
-        ? 'There was an error processing your payment. Please try again.'
-        : 'There was an error booking your appointment. Please try again.';
-
       toast({
-        title: errorTitle,
-        description: error.message || errorDescription,
+        title: 'Error',
+        description: error.message || 'There was an error booking your appointment. Please try again.',
         variant: "destructive",
       });
 
@@ -233,21 +189,14 @@ export const useConsultationBooking = ({
       setStep(2);
 
     } else if (step === 2) {
-      let success = false;
-
-      if (paymentMethod === 'razorpay') {
-        // Process payment first, then save appointment
-        const paymentSuccess = await handleRazorpayPayment();
-        if (paymentSuccess) {
-          success = await handleBookingSubmission('razorpay');
+      setIsProcessingPayment(true);
+      try {
+        const success = await handleBookingSubmission();
+        if (success) {
+          setStep(3);
         }
-      } else {
-        // Save appointment directly for cash payment
-        success = await handleBookingSubmission('cash');
-      }
-
-      if (success) {
-        setStep(3);
+      } finally {
+        setIsProcessingPayment(false);
       }
 
     } else {
@@ -268,16 +217,29 @@ export const useConsultationBooking = ({
     navigate('/');
   };
 
+  const availablePaymentMethods = [
+    {
+      id: 'razorpay',
+      name: 'Online Payment (Card/UPI/Netbanking)',
+      available: true
+    },
+    {
+      id: 'cash',
+      name: 'Cash Payment',
+      available: consultationType !== 'virtual'
+    }
+  ];
+
   return {
     // State
     step,
     consultationType,
-    paymentMethod,
-    isProcessingPayment,
     showReportWarning,
     hasIncompleteAppointments,
     incompleteAppointments,
     isCheckingAppointments,
+    paymentMethod,
+    isProcessingPayment,
     
     // Form data
     formData,
@@ -285,9 +247,9 @@ export const useConsultationBooking = ({
     // Methods
     setStep,
     setConsultationType,
-    setPaymentMethod,
     setFormData,
     setShowReportWarning,
+    setPaymentMethod,
     
     // Actions
     handleContinue,
@@ -298,7 +260,7 @@ export const useConsultationBooking = ({
     consultationTypes,
     availableTimeSlots,
     dateConstraints,
-    availablePaymentMethods,
     selectedConsultation,
+    availablePaymentMethods,
   };
 };

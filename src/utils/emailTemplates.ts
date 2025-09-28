@@ -8,7 +8,7 @@ export const EmailTemplates = {
   otp: (
     name: string,
     otpCode: string,
-    appName: string = process.env.APP_NAME || 'SocioDent Smile'
+  appName: string = process.env.APP_NAME || 'SocioDent'
   ): EmailTemplate => ({
     subject: `Your Login Verification Code - ${appName}`,
     html: `
@@ -37,7 +37,7 @@ export const EmailTemplates = {
     `,
   }),
   
-  welcome: (name: string, appName: string = process.env.APP_NAME || 'Our App'): EmailTemplate => ({
+  welcome: (name: string, appName: string = process.env.APP_NAME || 'SocioDent'): EmailTemplate => ({
     subject: `Welcome to ${appName}, ${name}!`,
     html: `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
@@ -60,14 +60,14 @@ export const EmailTemplates = {
   passwordReset: (
     name: string,
     resetLink: string,
-    appName: string = process.env.APP_NAME || 'SocioDent Smile'
+    appName: string = process.env.APP_NAME || 'SocioDent'
   ): EmailTemplate => ({
     subject: `Reset your password for ${appName}`,
     html: `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden;">
         <div style="background: #f8fafc; padding: 24px 0 12px 0; text-align: center;">
           <img src="https://sociodent-smile-database.web.app/logo.png" alt="SocioDent Logo" style="max-width: 120px; margin-bottom: 8px;" />
-          <h1 style="color: #2563eb; font-size: 2rem; margin: 0;">SocioDent Smile</h1>
+          <h1 style="color: #2563eb; font-size: 2rem; margin: 0;">SocioDent</h1>
         </div>
         <div style="padding: 32px 24px 24px 24px;">
           <h2 style="color: #2563eb; margin-top: 0;">Reset your password</h2>
@@ -82,7 +82,7 @@ export const EmailTemplates = {
           <p style="color: #555;">If you didn’t ask to reset your password, you can ignore this email.</p>
           <div style="margin-top: 40px; padding-top: 20px; border-top: 1px solid #e5e7eb; text-align: center; color: #6b7280;">
             <p style="margin: 0;">Best regards,<br/>
-            <strong style="color: #2563eb;">The SocioDent Smile Team</strong></p>
+            <strong style="color: #2563eb;">The SocioDent Team</strong></p>
           </div>
         </div>
       </div>
@@ -95,7 +95,7 @@ export const EmailTemplates = {
       ${resetLink}\n\n
       If you didn’t ask to reset your password, you can ignore this email.\n\n
       Best regards,\n
-      The SocioDent Smile Team
+  The SocioDent Team
     `,
   }),
 
@@ -104,7 +104,7 @@ export const EmailTemplates = {
     doctorEmail: string,
     specialization: string,
     registrationNumber: string,
-    appName: string = process.env.APP_NAME || 'SocioDent Smile'
+    appName: string = process.env.APP_NAME || 'SocioDent'
   ): EmailTemplate => ({
     subject: `New Doctor Registration - ${doctorName}`,
     html: `
@@ -170,7 +170,7 @@ export const EmailTemplates = {
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden;">
         <div style="background: #f8fafc; padding: 24px 0 12px 0; text-align: center;">
           <img src="https://sociodent-smile-database.web.app/logo.png" alt="SocioDent Logo" style="max-width: 120px; margin-bottom: 8px;" />
-          <h1 style="color: #2563eb; font-size: 2rem; margin: 0;">SocioDent Smile</h1>
+          <h1 style="color: #2563eb; font-size: 2rem; margin: 0;">SocioDent</h1>
         </div>
         <div style="padding: 32px 24px 24px 24px;">
           <h2 style="color: #2563eb; margin-top: 0;">New Appointment Alert</h2>
@@ -239,7 +239,7 @@ export const EmailTemplates = {
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden;">
         <div style="background: #f8fafc; padding: 24px 0 12px 0; text-align: center;">
           <img src="https://sociodent-smile-database.web.app/logo.png" alt="SocioDent Logo" style="max-width: 120px; margin-bottom: 8px;" />
-          <h1 style="color: #2563eb; font-size: 2rem; margin: 0;">SocioDent Smile</h1>
+          <h1 style="color: #2563eb; font-size: 2rem; margin: 0;">SocioDent</h1>
         </div>
         <div style="padding: 32px 24px 24px 24px;">
           <h2 style="color: #2563eb; margin-top: 0;">New Patient Assigned</h2>

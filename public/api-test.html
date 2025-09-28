@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API Proxy Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        .result {
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 5px;
+        }
+        .success { background-color: #d4edda; border: 1px solid #c3e6cb; }
+        .error { background-color: #f8d7da; border: 1px solid #f5c6cb; }
+    </style>
+</head>
+<body>
+    <h1>🔧 API Proxy Test - Frontend to Backend</h1>
+    
+    <div class="test-section">
+        <h3>Test 1: Relative API URLs (Should work with Vite proxy)</h3>
+        <button onclick="testRelativeAPI()">Test /api/otp/send</button>
+        <div id="relative-result" class="result" style="display: none;"></div>
+    </div>
+
+    <div class="test-section">
+        <h3>Test 2: Absolute API URLs (Will fail with CORS)</h3>
+        <button onclick="testAbsoluteAPI()">Test http://localhost:3000/api/otp/send</button>
+        <div id="absolute-result" class="result" style="display: none;"></div>
+    </div>
+
+    <script>
+        async function testRelativeAPI() {
+            const resultDiv = document.getElementById('relative-result');
+            resultDiv.style.display = 'block';
+            resultDiv.innerHTML = '⏳ Testing relative API call...';
+            
+            try {
+                const response = await fetch('/api/otp/send', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        email: 'test@example.com'
+                    })
+                });
+
+                const result = await response.json();
+                
+                if (response.ok) {
+                    resultDiv.className = 'result success';
+                    resultDiv.innerHTML = `✅ SUCCESS: Relative API call works!<br>Status: ${response.status}<br>Message: ${result.message}`;
+                } else {
+                    resultDiv.className = 'result error';
+                    resultDiv.innerHTML = `❌ FAILED: ${response.status} - ${result.message}`;
+                }
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.innerHTML = `❌ ERROR: ${error.message}`;
+            }
+        }
+
+        async function testAbsoluteAPI() {
+            const resultDiv = document.getElementById('absolute-result');
+            resultDiv.style.display = 'block';
+            resultDiv.innerHTML = '⏳ Testing absolute API call...';
+            
+            try {
+                const response = await fetch('http://localhost:3000/api/otp/send', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        email: 'test@example.com'
+                    })
+                });
+
+                const result = await response.json();
+                
+                if (response.ok) {
+                    resultDiv.className = 'result success';
+                    resultDiv.innerHTML = `✅ SUCCESS: Absolute API call works!<br>Status: ${response.status}<br>Message: ${result.message}`;
+                } else {
+                    resultDiv.className = 'result error';
+                    resultDiv.innerHTML = `❌ FAILED: ${response.status} - ${result.message}`;
+                }
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.innerHTML = `❌ ERROR: ${error.message}<br>This is expected due to CORS policy`;
+            }
+        }
+    </script>
+</body>
+</html>

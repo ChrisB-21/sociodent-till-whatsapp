@@ -1,10 +1,17 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Calendar, User, Mail, Phone, MapPin, Settings } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { ref, onValue, update, get } from 'firebase/database';
+import { ref, onValue, get } from 'firebase/database';
 import { db } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { useAppointmentManagement } from '@/hooks/useAppointmentManagement';
+import { 
+  Dialog, 
+  DialogContent,
+  DialogHeader, 
+  DialogTitle 
+} from '@/components/ui/dialog';
+import { sendAppointmentCancellationEmails } from '@/services/emailService';
 
 // Define types for our data
 interface UserData {
@@ -56,6 +63,8 @@ const MyAppointments = () => {
 
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [loading, setLoading] = useState(true);
+  const [hasIncompleteAppointments, setHasIncompleteAppointments] = useState(false);
+  const [incompleteAppointmentCount, setIncompleteAppointmentCount] = useState(0);
   const [viewDoctor, setViewDoctor] = useState<{ 
     name: string; 
     email?: string; 
@@ -175,6 +184,22 @@ const MyAppointments = () => {
           
           console.log('MyAppointments: Filtered user appointments:', userAppointments);
           setAppointments(userAppointments);
+          
+          // Check for incomplete appointments that should block new bookings
+          const incompleteStatuses = ['pending', 'confirmed', 'assigned', 'scheduled'];
+          const incompleteAppointments = userAppointments.filter(appointment => {
+            const status = appointment.status?.toLowerCase() || 'pending';
+            return incompleteStatuses.includes(status);
+          });
+          
+          console.log('MyAppointments: Incomplete appointments check:', {
+            total: userAppointments.length,
+            incomplete: incompleteAppointments.length,
+            incompleteAppointments
+          });
+          
+          setHasIncompleteAppointments(incompleteAppointments.length > 0);
+          setIncompleteAppointmentCount(incompleteAppointments.length);
           setLoading(false);
         }, { onlyOnce: true });
       } else {
@@ -200,19 +225,109 @@ const MyAppointments = () => {
     navigate(`/consultation?reschedule=${appointmentId}`);
   };
 
+  // Check if appointment can be cancelled (at least 24 hours before appointment)
+  const canCancelAppointment = (appointment: any) => {
+    try {
+      const appointmentDateTime = new Date(`${appointment.date} ${appointment.time}`);
+      const currentDateTime = new Date();
+      const timeDifference = appointmentDateTime.getTime() - currentDateTime.getTime();
+      const hoursDifference = timeDifference / (1000 * 60 * 60);
+      return hoursDifference >= 24;
+    } catch (error) {
+      console.error('Error calculating cancellation eligibility:', error);
+      return false;
+    }
+  };
+
+  // Get cancellation deadline info for tooltip
+  const getCancellationDeadlineInfo = (appointment: any) => {
+    try {
+      const appointmentDateTime = new Date(`${appointment.date} ${appointment.time}`);
+      const currentDateTime = new Date();
+      const timeDifference = appointmentDateTime.getTime() - currentDateTime.getTime();
+      const hoursDifference = timeDifference / (1000 * 60 * 60);
+      
+      if (hoursDifference < 0) {
+        return 'Appointment has passed';
+      } else if (hoursDifference < 24) {
+        const hoursRemaining = Math.floor(hoursDifference);
+        const minutesRemaining = Math.floor((hoursDifference - hoursRemaining) * 60);
+        return `Cannot cancel - only ${hoursRemaining}h ${minutesRemaining}m remaining (must cancel at least 24h before)`;
+      } else {
+        const deadlineDateTime = new Date(appointmentDateTime.getTime() - (24 * 60 * 60 * 1000));
+        return `Can cancel until: ${deadlineDateTime.toLocaleDateString()} at ${deadlineDateTime.toLocaleTimeString()}`;
+      }
+    } catch (error) {
+      return 'Unable to determine cancellation deadline';
+    }
+  };
+
+  const { cancelAppointment, isLoading: isCancellingAppointment } = useAppointmentManagement();
+  
   const handleCancel = async (appointmentId: string) => {
     try {
-      // Update appointment status in Firebase
+      // Get appointment details first
       const appointmentRef = ref(db, `appointments/${appointmentId}`);
-      await update(appointmentRef, {
-        status: 'cancelled',
-        updatedAt: Date.now()
-      });
+      const appointmentSnapshot = await get(appointmentRef);
       
-      toast({
-        title: "Appointment Cancelled",
-        description: "Your appointment has been cancelled successfully"
-      });
+      if (!appointmentSnapshot.exists()) {
+        throw new Error('Appointment not found');
+      }
+      
+      const appointmentData = appointmentSnapshot.val();
+      
+      // Check if appointment can be cancelled (at least 24 hours before)
+      const appointmentDateTime = new Date(`${appointmentData.date} ${appointmentData.time}`);
+      const currentDateTime = new Date();
+      const timeDifference = appointmentDateTime.getTime() - currentDateTime.getTime();
+      const hoursDifference = timeDifference / (1000 * 60 * 60);
+      
+      if (hoursDifference < 24) {
+        const hoursRemaining = Math.floor(hoursDifference);
+        const minutesRemaining = Math.floor((hoursDifference - hoursRemaining) * 60);
+        toast({
+          title: "Cancellation Not Allowed",
+          description: hoursDifference < 0 
+            ? "This appointment has already passed and cannot be cancelled."
+            : `Cannot cancel - only ${hoursRemaining}h ${minutesRemaining}m remaining. You must cancel at least 24 hours before the appointment.`,
+          variant: "destructive"
+        });
+        return;
+      }
+
+      // Use the cancelAppointment function from the hook
+      await cancelAppointment(appointmentId);
+      
+      // Send email notifications to patient, doctor, and admin
+      try {
+        // Get doctor information for email notification
+        let doctorEmail = null;
+        if (appointmentData.doctorId) {
+          const doctorRef = ref(db, `users/${appointmentData.doctorId}`);
+          const doctorSnapshot = await get(doctorRef);
+          if (doctorSnapshot.exists()) {
+            doctorEmail = doctorSnapshot.val().email;
+          }
+        }
+
+        await sendAppointmentCancellationEmails({
+          patientName: appointmentData.userName || userData.name,
+          patientEmail: appointmentData.userEmail || userData.email,
+          doctorEmail: doctorEmail,
+          date: appointmentData.date,
+          time: appointmentData.time,
+          appointmentId: appointmentId,
+          doctorName: appointmentData.doctorName,
+          consultationType: appointmentData.consultationType,
+          cancellationReason: 'Cancelled by patient'
+        });
+      } catch (emailError) {
+        console.error('Error sending cancellation emails:', emailError);
+        // Don't fail the cancellation if email fails
+      }
+      
+      // Note: The appointments list will be automatically updated due to the onValue listener
+      // which will also trigger the incomplete appointments recheck
     } catch (error) {
       console.error('Error cancelling appointment:', error);
       toast({
@@ -224,6 +339,14 @@ const MyAppointments = () => {
   };
 
   const handleBookNewAppointment = () => {
+    if (hasIncompleteAppointments) {
+      toast({
+        title: "Cannot Book New Appointment",
+        description: `You have ${incompleteAppointmentCount} pending appointment${incompleteAppointmentCount > 1 ? 's' : ''}. Please wait for your current appointment${incompleteAppointmentCount > 1 ? 's' : ''} to be completed or cancelled before booking a new one.`,
+        variant: "destructive"
+      });
+      return;
+    }
     navigate('/consultation');
   };
 
@@ -306,12 +429,28 @@ const MyAppointments = () => {
               <div className="bg-white rounded-xl shadow-sm p-6">
                 <div className="flex justify-between items-center mb-6">
                   <h2 className="text-xl font-semibold">Your Dental Appointments</h2>
-                  <button
-                    onClick={handleBookNewAppointment}
-                    className="button-primary py-2"
-                  >
-                    Book New Appointment
-                  </button>
+                  <div className="flex flex-col items-end gap-2">
+                    {hasIncompleteAppointments && (
+                      <div className="text-xs text-amber-600 font-medium">
+                        ⚠️ You have {incompleteAppointmentCount} pending appointment{incompleteAppointmentCount > 1 ? 's' : ''}
+                      </div>
+                    )}
+                    <button
+                      onClick={handleBookNewAppointment}
+                      disabled={hasIncompleteAppointments}
+                      className={`py-2 px-4 rounded-lg transition-colors ${
+                        hasIncompleteAppointments 
+                          ? 'bg-gray-300 text-gray-500 cursor-not-allowed' 
+                          : 'button-primary'
+                      }`}
+                      title={hasIncompleteAppointments 
+                        ? `Complete your ${incompleteAppointmentCount} pending appointment${incompleteAppointmentCount > 1 ? 's' : ''} first` 
+                        : 'Book a new appointment'
+                      }
+                    >
+                      Book New Appointment
+                    </button>
+                  </div>
                 </div>
 
                 {appointments.length > 0 ? (
@@ -362,12 +501,35 @@ const MyAppointments = () => {
                                 >
                                   Reschedule
                                 </button>
-                                <button
-                                  onClick={() => handleCancel(appointment.id)}
-                                  className="text-red-600 hover:text-red-700 text-sm"
-                                >
-                                  Cancel
-                                </button>
+                                {canCancelAppointment(appointment) ? (
+                                  <button
+                                    onClick={() => handleCancel(appointment.id)}
+                                    disabled={isCancellingAppointment(appointment.id)}
+                                    className={`text-red-600 hover:text-red-700 text-sm flex items-center gap-1 ${
+                                      isCancellingAppointment(appointment.id) ? 'opacity-50 cursor-not-allowed' : ''
+                                    }`}
+                                    title={getCancellationDeadlineInfo(appointment)}
+                                  >
+                                    {isCancellingAppointment(appointment.id) ? (
+                                      <>
+                                        <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-red-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                        </svg>
+                                        Cancelling...
+                                      </>
+                                    ) : (
+                                      'Cancel'
+                                    )}
+                                  </button>
+                                ) : (
+                                  <span 
+                                    className="text-gray-400 text-sm cursor-not-allowed"
+                                    title={getCancellationDeadlineInfo(appointment)}
+                                  >
+                                    Cannot Cancel
+                                  </span>
+                                )}
                               </>
                             )}
                             <button
@@ -477,8 +639,19 @@ const MyAppointments = () => {
                     ))}
                   </div>
                 ) : (
-                  <div className="text-center py-8 text-gray-500">
-                    No appointments scheduled. Book your first appointment now!
+                  <div className="text-center py-8">
+                    <div className="text-gray-500 mb-4">
+                      No appointments scheduled.
+                    </div>
+                    {hasIncompleteAppointments ? (
+                      <div className="text-amber-600 text-sm">
+                        You have pending appointments that need to be completed first.
+                      </div>
+                    ) : (
+                      <div className="text-gray-500">
+                        Book your first appointment now!
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

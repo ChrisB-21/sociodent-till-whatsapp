@@ -56,7 +56,7 @@ export class OTPService {
           
           <div style="margin-top: 40px; padding-top: 20px; border-top: 1px solid #e5e7eb; text-align: center; color: #6b7280;">
             <p style="margin: 0;">Best regards,<br/>
-            <strong style="color: #2563eb;">The SocioDent Smile Team</strong></p>
+            <strong style="color: #2563eb;">The SocioDent Team</strong></p>
           </div>
         </div>
       `;
@@ -73,13 +73,13 @@ export class OTPService {
         If you didn't request this verification, please ignore this email.
         
         Best regards,
-        The SocioDent Smile Team
+  The SocioDent Team
       `;
 
       // Send email
       await sendEmail({
         to: email,
-        subject: 'Email Verification - SocioDent Smile',
+  subject: 'Email Verification - SocioDent',
         html: emailHtml,
         text: emailText
       });

@@ -1,0 +1,86 @@
+{
+  "states": [
+    {
+      "name": "Tamil Nadu",
+      "districts": [
+        {
+          "name": "Chennai",
+          "cities": [
+            {
+              "name": "Chennai",
+              "localities": [
+                {
+                  "name": "Adyar",
+                  "areas": ["Indira Nagar", "Besant Nagar", "Shastri Nagar"]
+                },
+                {
+                  "name": "T. Nagar",
+                  "areas": ["Pondy Bazaar", "Panagal Park"]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Coimbatore",
+          "cities": [
+            {
+              "name": "Coimbatore",
+              "localities": [
+                {
+                  "name": "RS Puram",
+                  "areas": ["DB Road", "East RS Puram"]
+                },
+                {
+                  "name": "Gandhipuram",
+                  "areas": ["Cross Cut Road", "100 Feet Road"]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Maharashtra",
+      "districts": [
+        {
+          "name": "Mumbai",
+          "cities": [
+            {
+              "name": "Mumbai",
+              "localities": [
+                {
+                  "name": "Andheri",
+                  "areas": ["Andheri East", "Andheri West"]
+                },
+                {
+                  "name": "Bandra",
+                  "areas": ["Bandra East", "Bandra West"]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Pune",
+          "cities": [
+            {
+              "name": "Pune",
+              "localities": [
+                {
+                  "name": "Kothrud",
+                  "areas": ["Paud Road", "Karve Nagar"]
+                },
+                {
+                  "name": "Viman Nagar",
+                  "areas": ["Symbiosis", "Phoenix Market City"]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -5,6 +5,7 @@ import crypto from 'crypto';
 import admin from 'firebase-admin';
 import emailRoutes from './routes/email.js';
 import whatsappRoutes from './routes/whatsapp.js';
+import otpRoutes from './routes/otp.js';
 import 'dotenv/config';
 
 const app = express();
@@ -47,7 +48,7 @@ try {
 
 // Configure CORS
 app.use(cors({
-  origin: ['http://localhost:8081', 'http://localhost:8082', 'http://localhost:8084', 'http://localhost:3000', 'https://sociodent-smile-database.web.app', '*'],
+  origin: ['http://localhost:8080', 'http://localhost:8082', 'http://localhost:8084', 'http://localhost:3000', 'https://sociodent-smile-database.web.app', '*'],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'Origin', 'Accept', 'X-Requested-With'],
   credentials: true,
@@ -59,6 +60,7 @@ app.use(express.json());
 // Register routes
 app.use('/api/email', emailRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
+app.use('/api/otp', otpRoutes);
 
 // Initialize Razorpay
 let razorpay = null;
@@ -179,6 +181,29 @@ app.post('/api/razorpay/verify-payment', async (req, res) => {
       success: false,
       message: 'Internal server error: ' + error.message
     });
+  }
+});
+
+// Debug endpoint to check users data
+app.get('/api/debug/users', async (req, res) => {
+  try {
+    if (!admin.apps.length) {
+      return res.status(500).json({ error: 'Firebase not initialized' });
+    }
+    
+    const realtimeDb = admin.database();
+    const usersRef = realtimeDb.ref('users');
+    const snapshot = await usersRef.once('value');
+    
+    if (!snapshot.exists()) {
+      return res.json({});
+    }
+    
+    const users = snapshot.val();
+    res.json(users);
+  } catch (error) {
+    console.error('Error fetching users:', error);
+    res.status(500).json({ error: error.message });
   }
 });
 

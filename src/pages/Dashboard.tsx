@@ -283,6 +283,31 @@
 //                                       Cancel
 //                                     </Button>
 //                                   </div>
+																	<div className="flex gap-2 mt-3">
+																		<Button 
+																			variant="outline" 
+																			size="sm"
+																			onClick={() => handleRescheduleAppointment(appointment.id)}
+																		>
+																			Reschedule
+																		</Button>
+																		<Button 
+																			variant="destructive" 
+																			size="sm"
+																			onClick={() => handleCancelAppointment(appointment.id)}
+																		>
+																			Cancel
+																		</Button>
+																		<a
+																			href={`https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(userProfile.email)}`}
+																			target="_blank"
+																			rel="noopener noreferrer"
+																		>
+																			<Button variant="secondary" size="sm">
+																				Email
+																			</Button>
+																		</a>
+																	</div>
 //                                 </div>
 //                               </div>
 //                             </div>

@@ -1,12 +1,12 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { FaUserMd } from 'react-icons/fa';
 import { useNavigate } from 'react-router-dom';
 import { Users, BarChart, Settings, FileText, Check, X,
-BadgeHelp, Search, ChevronDown, ChevronUp, Clock, Calendar, CheckCircle, XCircle, Building } from
+Search, ChevronDown, ChevronUp, Clock, CheckCircle, XCircle, Building, Package } from
 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
-import { ref as dbRef, onValue, update, set, remove, get } from 'firebase/database';
+import { ref as dbRef, onValue, update, remove, get } from 'firebase/database';
 import { db } from '@/firebase';
 import {
 AlertDialog,
@@ -25,10 +25,11 @@ SelectItem,
 SelectTrigger,
 SelectValue,
 } from "@/components/ui/select";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import UserReportsManager from '@/components/UserReportsManager'; // Import the UserReportsManager component
+import { getAvailableDoctors } from '@/services/appointmentSchedulingService';
 type User = {
+address: any;
+area: any;
 id: string;
 name: string;
 email: string;
@@ -41,6 +42,7 @@ phone?: string;
 state?: string;
 city?: string;
 pincode?: string;
+locality?: string;
 category?: string;
 disabilityType?: string;
 disabilityOther?: string;
@@ -64,38 +66,11 @@ licenseNumber: string;
 submittedDate: string;
 status: string;
 };
-type Report = {
-id: string;
-userId: string;
-userName: string;
-userEmail: string;
-fileName: string;
-fileUrl: string;
-uploadDate: string;
-fileType: string;
-fileCategory?: string;
-};
-type DoctorSchedule = {
-id: string;
-doctorId: string;
-doctorName: string;
-specialization: string;
-days: {
-monday: boolean;
-tuesday: boolean;
-wednesday: boolean;
-thursday: boolean;
-friday: boolean;
-saturday: boolean;
-sunday: boolean;
-};
-startTime: string;
-endTime: string;
-slotDuration: number;
-breakStartTime?: string;
-breakEndTime?: string;
-};
 type Appointment = {
+pincode: any;
+area: string | undefined;
+userAddress: any;
+state: any;
 id: string;
 userId: string;
 userName: string;
@@ -103,18 +78,15 @@ userEmail: string;
 doctorId: string;
 doctorName: string;
 specialization: string;
+consultationType?: 'virtual' | 'home' | 'clinic';
 date: string;
 time: string;
 status: 'pending' | 'confirmed' | 'completed' | 'cancelled';
 reason?: string;
 notes?: string;
 createdAt: number;
-};
-type Stat = {
-title: string;
-value: string;
-change: string;
-changeType: 'positive' | 'negative';
+city?: string;
+locality?: string;
 };
 type OrganizationBooking = {
   id: string;
@@ -137,17 +109,154 @@ type OrganizationBooking = {
   scheduledDate?: string;
   scheduledTime?: string;
   assignedDoctor?: string;
+  autoCompletedAt?: number;
+  autoCompletedReason?: string;
+  autoCompletedDate?: string;
 };
+
+type Order = {
+  id: string;
+  userId: string;
+  userEmail: string;
+  userName?: string; // Add this field
+  customerDetails: {
+    firstName: string;
+    lastName: string;
+    email: string;
+    phone: string;
+    addressLine1: string;
+    addressLine2?: string;
+    city: string;
+    state: string;
+    pincode: string;
+    landmark?: string;
+  };
+  items: Array<{
+    id: string;
+    name: string;
+    price: number;
+    quantity: number;
+    image: string;
+  }>;
+  totalAmount: number;
+  paymentMethod: 'cod' | 'online';
+  razorpayPaymentId?: string;
+  status: 'pending' | 'confirmed' | 'dispatched' | 'delivered' | 'cancelled';
+  createdAt: number;
+  orderDate: string;
+  adminNotes?: string;
+};
+
+// Function to check and auto-update expired organization bookings
+const checkAndUpdateExpiredOrganizationBookings = async (bookings: OrganizationBooking[]) => {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0); // Set to start of day for comparison
+  
+  for (const booking of bookings) {
+    // Skip if status is already completed or cancelled
+    if (booking.status === 'completed' || booking.status === 'cancelled') {
+      continue;
+    }
+    
+    // Check both scheduled date (priority) and preferred date
+    let dateToCheck = '';
+    let dateType = '';
+    
+    if (booking.scheduledDate && booking.scheduledDate !== "N/A") {
+      dateToCheck = booking.scheduledDate;
+      dateType = 'scheduled';
+    } else if (booking.preferredDate && booking.preferredDate !== "N/A") {
+      dateToCheck = booking.preferredDate;
+      dateType = 'preferred';
+    }
+    
+    if (dateToCheck) {
+      try {
+        // Parse the date (assuming format like DD/MM/YYYY or YYYY-MM-DD)
+        let checkDate: Date;
+        
+        if (dateToCheck.includes('/')) {
+          // Handle DD/MM/YYYY format
+          const [day, month, year] = dateToCheck.split('/');
+          checkDate = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+        } else if (dateToCheck.includes('-')) {
+          // Handle YYYY-MM-DD format
+          checkDate = new Date(dateToCheck);
+        } else {
+          // Try parsing as is
+          checkDate = new Date(dateToCheck);
+        }
+        
+        // Check if the date is valid and has passed
+        if (!isNaN(checkDate.getTime()) && checkDate < today) {
+          console.log(`Auto-updating organization booking ${booking.id} to completed - ${dateType} date ${dateToCheck} has passed`);
+          
+          // Update the status in Firebase
+          const { update, ref } = await import('firebase/database');
+          
+          const bookingRef = ref(db, `organizationBookings/${booking.id}`);
+          await update(bookingRef, {
+            status: 'completed',
+            autoCompletedAt: Date.now(),
+            autoCompletedReason: `${dateType.charAt(0).toUpperCase() + dateType.slice(1)} date exceeded`,
+            autoCompletedDate: dateToCheck
+          });
+        }
+      } catch (error) {
+        console.error(`Error parsing date for booking ${booking.id}:`, error);
+      }
+    }
+  }
+};
+
+// Utility function to convert 12-hour format to 24-hour format
+const convertTo24HourFormat = (timeStr: string): string => {
+  console.log('Converting time:', timeStr);
+  
+  if (!timeStr || typeof timeStr !== 'string') {
+    throw new Error(`Invalid time input: ${timeStr}`);
+  }
+  
+  const cleanTime = timeStr.trim();
+  
+  // Check if already in 24-hour format (HH:MM or H:MM)
+  const twentyFourHourRegex = /^([0-1]?[0-9]|2[0-3]):([0-5][0-9])$/;
+  if (twentyFourHourRegex.test(cleanTime)) {
+    // Pad single digit hours with leading zero
+    const [hours, minutes] = cleanTime.split(':');
+    return `${hours.padStart(2, '0')}:${minutes}`;
+  }
+  
+  // Handle 12-hour format (H:MM AM/PM or HH:MM AM/PM)
+  const twelveHourRegex = /^(1[0-2]|[1-9]):([0-5][0-9])\s*(AM|PM)$/i;
+  const match = cleanTime.match(twelveHourRegex);
+  
+  if (!match) {
+    throw new Error(`Invalid time format: ${timeStr}. Expected HH:MM or H:MM AM/PM format`);
+  }
+  
+  let [, hours, minutes, period] = match;
+  let hourNum = parseInt(hours);
+  
+  if (period.toUpperCase() === 'PM' && hourNum !== 12) {
+    hourNum += 12;
+  } else if (period.toUpperCase() === 'AM' && hourNum === 12) {
+    hourNum = 0;
+  }
+  
+  return `${hourNum.toString().padStart(2, '0')}:${minutes}`;
+};
+
 const AdminPortal = () => {
 const [isAuthenticated, setIsAuthenticated] = useState(false);
 const [userRole, setUserRole] = useState('');
-type TabType = 'dashboard' | 'users' | 'doctors' | 'schedules' | 'appointments' | 'organizations' | 'verifications' | 'reports' | 'settings';
+type TabType = 'dashboard' | 'users' | 'doctors' | 'appointments' | 'orders' | 'organizations' | 'verifications' | 'reports' | 'settings';
 const [activeTab, setActiveTab] = useState<TabType>('dashboard');
 const [users, setUsers] = useState<User[]>([]);
 const [filteredUsers, setFilteredUsers] = useState<User[]>([]);
 const [verificationRequests, setVerificationRequests] = useState<DoctorVerification[]>([]);
-const [doctorSchedules, setDoctorSchedules] = useState<DoctorSchedule[]>([]);
 const [appointments, setAppointments] = useState<Appointment[]>([]);
+const [orders, setOrders] = useState<Order[]>([]);
 const [organizationBookings, setOrganizationBookings] = useState<OrganizationBooking[]>([]);
 const [searchTerm, setSearchTerm] = useState('');
 const [sortConfig, setSortConfig] = useState<{ key: keyof User; direction: 'ascending' |
@@ -158,22 +267,10 @@ const [viewMode, setViewMode] = useState<'list' | 'details'>('list');
 const [showApproveDialog, setShowApproveDialog] = useState(false);
 const [showRejectDialog, setShowRejectDialog] = useState(false);
 const [selectedDoctorId, setSelectedDoctorId] = useState<string | null>(null);
-const [newSchedule, setNewSchedule] = useState<Partial<DoctorSchedule>>({
-days: {
-monday: false,
-tuesday: false,
-wednesday: false,
-thursday: false,
-friday: false,
-saturday: false,
-sunday: false,
-},
-slotDuration: 30,
-});
-const [showScheduleForm, setShowScheduleForm] = useState(false);
-const [editingScheduleId, setEditingScheduleId] = useState<string | null>(null);
 const [completeConfirm, setCompleteConfirm] = useState<{ show: boolean, appointmentId: string } | null>(null);
 const [deleteConfirm, setDeleteConfirm] = useState<{ show: boolean, userId: string, userName: string, userEmail: string } | null>(null);
+const [doctorCityFilter, setDoctorCityFilter] = useState<string>("all");
+const [doctorLocalityFilter, setDoctorLocalityFilter] = useState<string>("all");
 const navigate = useNavigate();
 const { toast } = useToast();
 // Check authentication and role
@@ -227,6 +324,7 @@ phone: user.phone,
 state: user.state,
 city: user.city,
 pincode: user.pincode,
+locality: user.locality,
 category: user.category,
 disabilityType: user.disabilityType,
 disabilityOther: user.disabilityOther,
@@ -260,45 +358,11 @@ submittedDate: user.joinDate,
 status: user.status ?? "pending"
 }));
 setVerificationRequests(pendingDoctors);
-// Load doctor schedules (mock data for this example)
-const mockSchedules: DoctorSchedule[] = usersArray
-.filter(user => user.role === 'doctor' && user.status === 'approved')
-.map(doctor => ({
-id:
-`
-schedule
-_
-${doctor.id}`
-,
-doctorId: doctor.id,
-doctorName: doctor.name,
-specialization: doctor.specialization ?? "General"
-,
-days: {
-monday: true,
-tuesday: true,
-wednesday: true,
-thursday: true,
-friday: true,
-saturday: false,
-sunday: false,
-},
-startTime: "09:00"
-,
-endTime: "17:00"
-,
-slotDuration: 30,
-breakStartTime: "12:00"
-,
-breakEndTime: "13:00"
-}));
-setDoctorSchedules(mockSchedules);
 setLoading(false);
 } else {
 setUsers([]);
 setFilteredUsers([]);
 setVerificationRequests([]);
-setDoctorSchedules([]);
 setLoading(false);
 }
 });
@@ -320,6 +384,7 @@ doctorName: appointment.doctorName ?? "N/A"
 ,
 specialization: appointment.specialization ?? "N/A"
 ,
+consultationType: appointment.consultationType ?? 'clinic', // Add consultation type here
 date: appointment.date ?? "N/A"
 ,
 time: appointment.time ?? "N/A"
@@ -328,7 +393,13 @@ status: appointment.status ?? "pending"
 ,
 reason: appointment.reason,
 notes: appointment.notes,
-createdAt: appointment.createdAt ?? Date.now()
+createdAt: appointment.createdAt ?? Date.now(),
+state: appointment.state ?? '',
+city: appointment.city ?? '',
+locality: appointment.locality ?? '',
+area: appointment.area ?? '', // <-- add area property to match Appointment type
+userAddress: appointment.userAddress ?? {},
+pincode: appointment.pincode ?? '', // <-- add pincode property to match Appointment type
 };
 });
 setAppointments(appointmentsArray);
@@ -337,9 +408,52 @@ setAppointments([]);
 }
 });
 
+// Fetch orders
+const ordersRef = dbRef(db, 'orders');
+onValue(ordersRef, async (snapshot) => {
+const data = snapshot.val();
+if (data) {
+const ordersArray = await Promise.all(Object.keys(data).map(async (key) => {
+const order = data[key];
+// Look up user name
+let userName = "N/A";
+if (order.userId) {
+try {
+const userRef = dbRef(db, `users/${order.userId}`);
+const userSnapshot = await get(userRef);
+if (userSnapshot.exists()) {
+const userData = userSnapshot.val();
+userName = userData.fullName || userData.name || "N/A";
+}
+} catch (error) {
+console.error("Error fetching user data for order:", error);
+}
+}
+return {
+id: key,
+userId: order.userId ?? "N/A",
+userEmail: order.userEmail ?? "N/A",
+userName: userName,
+customerDetails: order.customerDetails ?? {},
+items: order.items ?? [],
+totalAmount: order.totalAmount ?? 0,
+paymentMethod: order.paymentMethod ?? 'cod',
+razorpayPaymentId: order.razorpayPaymentId,
+status: order.status ?? 'pending',
+createdAt: order.createdAt ?? Date.now(),
+orderDate: order.orderDate ?? new Date().toISOString(),
+adminNotes: order.adminNotes
+};
+}));
+setOrders(ordersArray);
+} else {
+setOrders([]);
+}
+});
+
 // Fetch organization bookings
 const organizationBookingsRef = dbRef(db, 'organizationBookings');
-onValue(organizationBookingsRef, (snapshot) => {
+onValue(organizationBookingsRef, async (snapshot) => {
 const data = snapshot.val();
 if (data) {
 const organizationBookingsArray = Object.keys(data).map(key => {
@@ -364,9 +478,16 @@ status: booking.status ?? "pending",
 adminNotes: booking.adminNotes,
 scheduledDate: booking.scheduledDate,
 scheduledTime: booking.scheduledTime,
-assignedDoctor: booking.assignedDoctor
+assignedDoctor: booking.assignedDoctor,
+autoCompletedAt: booking.autoCompletedAt,
+autoCompletedReason: booking.autoCompletedReason,
+autoCompletedDate: booking.autoCompletedDate
 };
 });
+
+// Check and auto-update expired organization bookings
+await checkAndUpdateExpiredOrganizationBookings(organizationBookingsArray);
+
 setOrganizationBookings(organizationBookingsArray);
 } else {
 setOrganizationBookings([]);
@@ -374,6 +495,18 @@ setOrganizationBookings([]);
 });
 }
 }, [isAuthenticated, userRole]);
+
+// Periodic check for expired organization bookings (every 5 minutes)
+useEffect(() => {
+  if (isAuthenticated && userRole === 'admin') {
+    const interval = setInterval(async () => {
+      console.log('Running periodic check for expired organization bookings...');
+      await checkAndUpdateExpiredOrganizationBookings(organizationBookings);
+    }, 5 * 60 * 1000); // 5 minutes
+
+    return () => clearInterval(interval);
+  }
+}, [isAuthenticated, userRole, organizationBookings]);
 
 // Filter users based on search term
 useEffect(() => {
@@ -399,13 +532,15 @@ const requestSort = (key: keyof User) => {
   }
   setSortConfig({ key, direction });
   const sortedUsers = [...filteredUsers].sort((a, b) => {
-	if (a[key] < b[key]) {
-	  return direction === 'ascending' ? -1 : 1;
-	}
-	if (a[key] > b[key]) {
-	  return direction === 'ascending' ? 1 : -1;
-	}
-	return 0;
+  const aValue = a[key] ?? '';
+  const bValue = b[key] ?? '';
+  if (aValue < bValue) {
+    return direction === 'ascending' ? -1 : 1;
+  }
+  if (aValue > bValue) {
+    return direction === 'ascending' ? 1 : -1;
+  }
+  return 0;
   });
   setFilteredUsers(sortedUsers);
 };
@@ -579,6 +714,33 @@ const updateAppointmentStatus = async (appointmentId: string, newStatus: 'pendin
     });
   }
 };
+
+// Update order status
+const updateOrderStatus = async (orderId: string, newStatus: 'pending' | 'confirmed' | 'dispatched' | 'delivered' | 'cancelled') => {
+  try {
+    const orderRef = dbRef(db, `orders/${orderId}`);
+    await update(orderRef, { 
+      status: newStatus,
+      updatedAt: Date.now()
+    });
+    
+    toast({
+      title: "Success",
+      description: `Order status has been updated to ${newStatus}`,
+      variant: "default"
+    });
+    
+    setOrders(prev => prev.map(order => order.id === orderId ? { ...order, status: newStatus } : order));
+  } catch (error) {
+    console.error("Error updating order status:", error);
+    toast({
+      title: "Error",
+      description: "Failed to update order status",
+      variant: "destructive"
+    });
+  }
+};
+
 // Handle view user details
 const handleViewUserDetails = (user: User) => {
 setSelectedUser(user);
@@ -590,165 +752,10 @@ setViewMode('list');
 setSelectedUser(null);
 };
 // Handle schedule form changes
-const handleScheduleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-const { name, value, type, checked } = e.target;
-if (name.startsWith('days.')) {
-const day = name.split('.')[1];
-setNewSchedule(prev => ({
-...prev,
-days: {
-...prev.days,
-[day]: checked
-}
-}));
-} else {
-setNewSchedule(prev => ({
-...prev,
-[name]: type === 'checkbox' ? checked : value
-}));
-}
-};
 // Handle select change for doctor
-const handleDoctorSelect = (doctorId: string) => {
-const doctor = users.find(u => u.id === doctorId);
-if (doctor) {
-setNewSchedule(prev => ({
-...prev,
-doctorId: doctor.id,
-doctorName: doctor.name,
-specialization: doctor.specialization
-}));
-}
-};
 // Submit new schedule
-const handleSubmitSchedule = async () => {
-if (!newSchedule.doctorId || !newSchedule.startTime || !newSchedule.endTime) {
-toast({
-title: "Error"
-,
-description: "Please fill all required fields"
-,
-variant: "destructive"
-});
-return;
-}
-
-try {
-  if (editingScheduleId) {
-    // Update existing schedule in Firebase
-    const scheduleRef = dbRef(db, `doctorSchedules/${editingScheduleId}`);
-    await update(scheduleRef, {
-      ...newSchedule,
-      updatedAt: Date.now()
-    });
-    
-    // Update local state
-    setDoctorSchedules(prev =>
-      prev.map(schedule =>
-        schedule.id === editingScheduleId
-        ? { ...schedule, ...newSchedule } as DoctorSchedule
-        : schedule
-      )
-    );
-    
-    toast({
-      title: "Schedule Updated",
-      description: "Doctor schedule has been updated"
-    });
-  } else {
-    // Create a new schedule ID
-    const scheduleId = `schedule_${Date.now()}`;
-      // Prepare schedule object
-    const schedule: DoctorSchedule = {
-      id: scheduleId,
-      doctorId: newSchedule.doctorId || "",
-      doctorName: newSchedule.doctorName || "",
-      specialization: newSchedule.specialization || "General",
-      days: newSchedule.days || {
-        monday: false,
-        tuesday: false,
-        wednesday: false,
-        thursday: false,
-        friday: false,
-        saturday: false,
-        sunday: false,      },
-      startTime: newSchedule.startTime || "",
-      endTime: newSchedule.endTime || "",
-      slotDuration: newSchedule.slotDuration || 30,
-      breakStartTime: newSchedule.breakStartTime,
-      breakEndTime: newSchedule.breakEndTime
-    };
-    
-    // Save to Firebase
-    const scheduleRef = dbRef(db, `doctorSchedules/${scheduleId}`);
-    await set(scheduleRef, {
-      ...schedule,
-      createdAt: Date.now()
-    });
-    
-    // Update local state
-    setDoctorSchedules(prev => [...prev, schedule]);
-    
-    toast({
-      title: "Schedule Added",
-      description: "New doctor schedule has been added"
-    });
-  }
-} catch (error) {
-  console.error("Error saving doctor schedule:", error);
-  toast({
-    title: "Error",
-    description: "Failed to save doctor schedule",
-    variant: "destructive"
-  });
-}
-setNewSchedule({
-days: {
-monday: false,
-tuesday: false,
-wednesday: false,
-thursday: false,
-friday: false,
-saturday: false,
-sunday: false,
-},
-slotDuration: 30,
-});
-setShowScheduleForm(false);
-setEditingScheduleId(null);
-};
 // Edit schedule
-const handleEditSchedule = (scheduleId: string) => {
-const schedule = doctorSchedules.find(s => s.id === scheduleId);
-if (schedule) {
-setNewSchedule(schedule);
-setEditingScheduleId(scheduleId);
-setShowScheduleForm(true);
-}
-};
 // Delete schedule
-const handleDeleteSchedule = async (scheduleId: string) => {
-  try {
-    // Delete from Firebase
-    const scheduleRef = dbRef(db, `doctorSchedules/${scheduleId}`);
-    await remove(scheduleRef);
-    
-    // Update local state
-    setDoctorSchedules(prev => prev.filter(s => s.id !== scheduleId));
-    
-    toast({
-      title: "Schedule Deleted",
-      description: "Doctor schedule has been removed"
-    });
-  } catch (error) {
-    console.error("Error deleting schedule:", error);
-    toast({
-      title: "Error",
-      description: "Failed to delete schedule",
-      variant: "destructive"
-    });
-  }
-};
 // Stats data based on actual users
 const stats = [
 {
@@ -837,12 +844,12 @@ const tabs = [
 { id: 'doctors'
 , name: 'Doctors'
 , icon: <FaUserMd className="w-5 h-5 mr-2" /> },
-{ id: 'schedules'
-, name: 'Doctor Schedules'
-, icon: <Calendar className="w-5 h-5 mr-2" /> },
 { id: 'appointments'
 , name: 'Appointments'
 , icon: <Clock className="w-5 h-5 mr-2" /> },
+{ id: 'orders'
+, name: 'Orders'
+, icon: <Package className="w-5 h-5 mr-2" /> },
 { id: 'organizations'
 , name: 'Organization Bookings'
 , icon: <Building className="w-5 h-5 mr-2" /> },
@@ -857,17 +864,163 @@ const tabs = [
 , icon: <Settings className="w-5 h-5 mr-2" /> }
 ];
 // Get available doctors for scheduling
-const availableDoctors = users.filter(user =>
-  user.role === 'doctor' && user.status === 'approved'
-);
 // State for manual doctor assignment
 const [assigningAppointmentId, setAssigningAppointmentId] = useState<string | null>(null);
 const [selectedAssignDoctorId, setSelectedAssignDoctorId] = useState<string | null>(null);
+const [availableDoctorsForAppointment, setAvailableDoctorsForAppointment] = useState<any[]>([]);
+const [checkingAvailability, setCheckingAvailability] = useState(false);
+
+// Handler to check available doctors for an appointment
+const checkAvailableDoctorsForAppointment = async (appointment: any) => {
+  setCheckingAvailability(true);
+  try {
+    // Validate appointment data
+    if (!appointment || !appointment.date || !appointment.time) {
+      throw new Error('Invalid appointment data: missing date or time');
+    }
+
+    // Log the appointment data for debugging
+    console.log('🔍 Checking availability for appointment:', {
+      id: appointment.id,
+      date: appointment.date,
+      time: appointment.time,
+      consultationType: appointment.consultationType,
+      doctorId: appointment.doctorId,
+      doctorName: appointment.doctorName
+    });
+    
+    // First, let's check how many doctors we have in the admin portal
+    const adminApprovedDoctors = users.filter(user => user.role === 'doctor' && user.status === 'approved');
+    console.log(`🩺 Admin Portal shows ${adminApprovedDoctors.length} approved doctors:`);
+    adminApprovedDoctors.forEach(doctor => {
+      console.log(`   - Dr. ${doctor.name} (${doctor.specialization || 'General'}) - Status: ${doctor.status}`);
+    });
+    
+    const consultationType = appointment.consultationType || 'clinic';
+    
+    // Map consultation types to our scheduling service format
+    const scheduleMode = consultationType === 'virtual' ? 'virtual' : 
+                        consultationType === 'home' ? 'home' : 'clinic';
+    
+    // Validate date format (should be YYYY-MM-DD)
+    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+    let formattedDate = appointment.date;
+    
+    // If date is in DD/MM/YYYY format, convert to YYYY-MM-DD
+    if (!dateRegex.test(appointment.date) && appointment.date.includes('/')) {
+      const [day, month, year] = appointment.date.split('/');
+      formattedDate = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+      console.log(`📅 Converted date from ${appointment.date} to ${formattedDate}`);
+    }
+    
+    // Convert appointment time to 24-hour format using global function
+    let formattedTime = appointment.time;
+    try {
+      formattedTime = convertTo24HourFormat(appointment.time);
+      if (formattedTime !== appointment.time) {
+        console.log(`⏰ Converted time from ${appointment.time} to ${formattedTime}`);
+      }
+    } catch (timeError) {
+      throw new Error(`Time format error: ${timeError instanceof Error ? timeError.message : 'Unknown error'}`);
+    }
+    
+    // Validate time format (should be HH:MM)
+    const timeRegex = /^\d{2}:\d{2}$/;
+    if (!timeRegex.test(formattedTime)) {
+      throw new Error(`Invalid time format: ${formattedTime}. Expected HH:MM format.`);
+    }
+    
+    console.log(`🎯 Calling getAvailableDoctors with: date=${formattedDate}, time=${formattedTime}, mode=${scheduleMode}`);
+    
+    const result = await getAvailableDoctors(formattedDate, formattedTime, scheduleMode);
+    
+    if (!result || !result.availableDoctors) {
+      throw new Error('Invalid response from availability service');
+    }
+    
+    // Filter to only show available doctors and prioritize by location
+    const availableDoctors = result.availableDoctors
+      .filter(doctor => doctor.isAvailable)
+      .map(doctor => {
+        // Find the full doctor details from users array
+        const doctorDetails = users.find(u => u.id === doctor.doctorId);
+        return {
+          ...doctor,
+          // Add location details from the doctor's profile
+          city: doctorDetails?.city || 'Not specified',
+          locality: doctorDetails?.locality || 'Not specified'
+        };
+      })
+      .sort((a, b) => {
+        // Prioritize doctors in the same city and locality
+        const aMatchesCity = a.city.toLowerCase() === (appointment.city || '').toLowerCase();
+        const bMatchesCity = b.city.toLowerCase() === (appointment.city || '').toLowerCase();
+        const aMatchesLocality = a.locality.toLowerCase() === (appointment.locality || '').toLowerCase();
+        const bMatchesLocality = b.locality.toLowerCase() === (appointment.locality || '').toLowerCase();
+
+        if (aMatchesCity && !bMatchesCity) return -1;
+        if (!aMatchesCity && bMatchesCity) return 1;
+        if (aMatchesLocality && !bMatchesLocality) return -1;
+        if (!aMatchesLocality && bMatchesLocality) return 1;
+        return 0;
+      });
+
+    setAvailableDoctorsForAppointment(availableDoctors);
+    
+    // Log scheduling analysis
+    console.log(`\n✅ Doctor Availability Check Complete for Appointment ${appointment.id}:`);
+    console.log(`📅 Date: ${formattedDate}, Time: ${formattedTime} (original: ${appointment.time}), Type: ${scheduleMode.toUpperCase()}`);
+    console.log(`📊 Total doctors: ${result.totalDoctors}, Available: ${result.availableCount}, Unavailable: ${result.unavailableCount}`);
+    
+    if (result.unavailableCount > 0) {
+      const unavailableDoctors = result.availableDoctors.filter(doctor => !doctor.isAvailable);
+      console.log('\n❌ Unavailable doctors and reasons:');
+      unavailableDoctors.forEach(doctor => {
+        console.log(`   - Dr. ${doctor.doctorName}: ${doctor.conflictReason}`);
+      });
+    }
+    
+    if (availableDoctors.length > 0) {
+      console.log('\n✅ Available doctors:');
+      availableDoctors.forEach(doctor => {
+        console.log(`   - Dr. ${doctor.doctorName} (${doctor.specialization})`);
+      });
+    }
+    
+    toast({
+      title: 'Availability Check Complete',
+      description: `${availableDoctors.length} doctors available for this appointment slot`,
+    });
+    
+  } catch (error) {
+    console.error('❌ Error checking doctor availability:', error);
+    
+    // More detailed error message
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+    
+    toast({
+      title: 'Availability Check Failed',
+      description: `Error: ${errorMessage}`,
+      variant: 'destructive',
+    });
+    setAvailableDoctorsForAppointment([]);
+  } finally {
+    setCheckingAvailability(false);
+  }
+};
 
 // Handler to assign doctor to appointment
 const handleAssignDoctor = async (appointmentId: string, doctorId: string) => {
   const doctor = users.find(u => u.id === doctorId);
-  if (!doctor) return;
+  if (!doctor) {
+    toast({
+      title: 'Error',
+      description: 'Selected doctor not found',
+      variant: 'destructive',
+    });
+    return;
+  }
+  
   try {
     // Get appointment details first
     const appointmentRef = dbRef(db, `appointments/${appointmentId}`);
@@ -879,6 +1032,43 @@ const handleAssignDoctor = async (appointmentId: string, doctorId: string) => {
     
     const appointmentData = appointmentSnapshot.val();
     
+    console.log('🔄 Assigning doctor to appointment:', {
+      appointmentId,
+      doctorId,
+      doctorName: doctor.name,
+      appointmentDate: appointmentData.date,
+      appointmentTime: appointmentData.time
+    });
+    
+    // Double-check availability before assignment using our scheduling service
+    const consultationType = appointmentData.consultationType || 'clinic';
+    const scheduleMode = consultationType === 'virtual' ? 'virtual' : 
+                        consultationType === 'home' ? 'home' : 'clinic';
+    
+    // Validate and format date if needed
+    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+    let formattedDate = appointmentData.date;
+    
+    if (!dateRegex.test(appointmentData.date) && appointmentData.date.includes('/')) {
+      const [day, month, year] = appointmentData.date.split('/');
+      formattedDate = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+    }
+    
+    // Convert appointment time to 24-hour format for scheduling service
+    const formattedTime = convertTo24HourFormat(appointmentData.time);
+    console.log('🔄 Converting time for doctor assignment:', {
+      originalTime: appointmentData.time,
+      convertedTime: formattedTime
+    });
+    
+    const availabilityResult = await getAvailableDoctors(formattedDate, formattedTime, scheduleMode);
+    const doctorAvailability = availabilityResult.availableDoctors.find(d => d.doctorId === doctorId);
+    
+    if (!doctorAvailability || !doctorAvailability.isAvailable) {
+      const conflictReason = doctorAvailability?.conflictReason || 'Doctor not available';
+      throw new Error(`Cannot assign doctor: ${conflictReason}`);
+    }
+    
     // Update appointment with doctor assignment
     await update(appointmentRef, {
       doctorId: doctor.id,
@@ -886,7 +1076,12 @@ const handleAssignDoctor = async (appointmentId: string, doctorId: string) => {
       specialization: doctor.specialization || 'General',
       status: 'confirmed',
       updatedAt: Date.now(),
+      assignmentType: 'manual',
+      assignedBy: 'admin', // You might want to track the actual admin user
+      assignedAt: Date.now()
     });
+    
+    console.log('✅ Doctor assigned successfully');
     
     // Send email notification to the assigned doctor
     try {
@@ -902,30 +1097,35 @@ const handleAssignDoctor = async (appointmentId: string, doctorId: string) => {
           appointmentData.consultationType || 'consultation',
           appointmentId
         );
-        console.log(`Email notification sent to doctor: ${doctor.email}`);
+        console.log(`📧 Email notification sent to doctor: ${doctor.email}`);
       }
     } catch (emailError) {
-      console.error('Error sending email notification to doctor:', emailError);
+      console.error('⚠️ Error sending email notification to doctor:', emailError);
       // Don't fail the assignment if email fails
     }
     
     toast({
-      title: 'Doctor Assigned',
-      description: `Assigned Dr. ${doctor.name} to appointment`,
+      title: 'Doctor Assigned Successfully',
+      description: `Assigned Dr. ${doctor.name} to appointment with conflict validation`,
     });
+    
+    // Reset the assignment UI
     setAssigningAppointmentId(null);
     setSelectedAssignDoctorId(null);
+    setAvailableDoctorsForAppointment([]);
+    
   } catch (error) {
-    console.error("Error assigning doctor:", error);
+    console.error("❌ Error assigning doctor:", error);
+    const errorMessage = error instanceof Error ? error.message : 'Failed to assign doctor';
     toast({
-      title: 'Error',
-      description: 'Failed to assign doctor',
+      title: 'Assignment Failed',
+      description: errorMessage,
       variant: 'destructive',
     });
   }
 };
 // Define the checkAppointmentStatus function
-const checkAppointmentStatus = (appointment) => {
+const checkAppointmentStatus = (appointment: Appointment) => {
   const appointmentDateTime = new Date(`${appointment.date} ${appointment.time}`);
   const currentDateTime = new Date();
   return currentDateTime > appointmentDateTime ? 'completed' : appointment.status;
@@ -975,6 +1175,7 @@ return (
 		<div className="space-y-2">
 		  <p><span className="font-medium">State:</span> {selectedUser.state || 'N/A'}</p>
 		  <p><span className="font-medium">City:</span> {selectedUser.city || 'N/A'}</p>
+		  <p><span className="font-medium">Area/Locality:</span> {selectedUser.area || selectedUser.address?.area || selectedUser.locality || selectedUser.address?.locality || 'N/A'}</p>
 		  <p><span className="font-medium">Pincode:</span> {selectedUser.pincode || 'N/A'}</p>
 		</div>
 	  </div>
@@ -1375,6 +1576,31 @@ Delete
 {activeTab === 'doctors' && (
   <div className="bg-white rounded-xl shadow-sm p-6">
     <h2 className="text-xl font-semibold mb-6">Doctors List</h2>
+    {/* Location Filter UI */}
+    <div className="flex gap-4 mb-4">
+      <Select onValueChange={value => setDoctorCityFilter(value)}>
+        <SelectTrigger className="w-48">
+          <SelectValue placeholder="Filter by City" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">All Cities</SelectItem>
+          {[...new Set(users.filter(u => u.role === 'doctor' && u.city).map(u => u.city || 'unknown'))].map(city => (
+            <SelectItem key={city} value={city}>{city === 'unknown' ? 'Unknown' : city}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <Select onValueChange={value => setDoctorLocalityFilter(value)}>
+        <SelectTrigger className="w-48">
+          <SelectValue placeholder="Filter by Locality" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">All Localities</SelectItem>
+          {[...new Set(users.filter(u => u.role === 'doctor' && u.locality).map(u => u.locality || 'unknown'))].map(locality => (
+            <SelectItem key={locality} value={locality}>{locality === 'unknown' ? 'Unknown' : locality}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
@@ -1388,7 +1614,10 @@ Delete
           </tr>
         </thead>
         <tbody>
-          {users.filter(user => user.role === 'doctor').map(doctor => (
+          {users.filter(user => user.role === 'doctor' &&
+            (doctorCityFilter === 'all' || user.city === doctorCityFilter) &&
+            (doctorLocalityFilter === 'all' || user.locality === doctorLocalityFilter)
+          ).map(doctor => (
             <tr key={doctor.id} className="border-b hover:bg-gray-50">
               <td className="px-4 py-4">{doctor.name}</td>
               <td className="px-4 py-4">{doctor.email}</td>
@@ -1459,211 +1688,6 @@ Delete
     </div>
   </div>
 )}
-{activeTab === 'schedules' && (
-  <div className="bg-white rounded-xl shadow-sm p-6">
-    <div className="flex justify-between items-center mb-6">
-      <h2 className="text-xl font-semibold">Doctor Schedules</h2>
-      <Button
-        onClick={() => {
-          setShowScheduleForm(true);
-          setEditingScheduleId(null);
-          setNewSchedule({
-            days: {
-              monday: false,
-              tuesday: false,
-              wednesday: false,
-              thursday: false,
-              friday: false,
-              saturday: false,
-              sunday: false,
-            },
-            slotDuration: 30,
-          });
-        }}
-        className="bg-[#1669AE] hover:bg-[#135a94]"
-      >
-        Add New Schedule
-      </Button>
-    </div>
-    {showScheduleForm && (
-      <div className="bg-gray-50 rounded-lg p-6 mb-6">
-        <h3 className="font-semibold mb-4 text-lg">
-          {editingScheduleId ? 'Edit Schedule' : 'Add New Schedule'}
-        </h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-          <div>
-            <label htmlFor="doctorSelect" className="block text-sm font-medium text-gray-700 mb-1">
-              Doctor
-            </label>
-            <Select
-              value={newSchedule.doctorId || ''}
-              onValueChange={handleDoctorSelect}
-              aria-label="Select a doctor"
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="Select a doctor" />
-              </SelectTrigger>
-              <SelectContent>
-                {availableDoctors.map(doctor => (
-                  <SelectItem key={doctor.id} value={doctor.id}>
-                    {doctor.name} ({doctor.specialization || 'General'})
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div>
-            <label htmlFor="slotDuration" className="block text-sm font-medium text-gray-700 mb-1">
-              Slot Duration (minutes)
-            </label>
-            <Input
-              id="slotDuration"
-              type="number"
-              name="slotDuration"
-              value={newSchedule.slotDuration || 30}
-              onChange={handleScheduleChange}
-              min="15"
-              max="60"
-              step="15"
-            />
-          </div>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-          <div>
-            <label htmlFor="startTime" className="block text-sm font-medium text-gray-700 mb-1">
-              Start Time
-            </label>
-            <Input
-              id="startTime"
-              type="time"
-              name="startTime"
-              value={newSchedule.startTime || ''}
-              onChange={handleScheduleChange}
-            />
-          </div>
-          <div>
-            <label htmlFor="endTime" className="block text-sm font-medium text-gray-700 mb-1">
-              End Time
-            </label>
-            <Input
-              id="endTime"
-              type="time"
-              name="endTime"
-              value={newSchedule.endTime || ''}
-              onChange={handleScheduleChange}
-            />
-          </div>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-          <div>
-            <label htmlFor="breakStartTime" className="block text-sm font-medium text-gray-700 mb-1">
-              Break Start Time
-            </label>
-            <Input
-              id="breakStartTime"
-              type="time"
-              name="breakStartTime"
-              value={newSchedule.breakStartTime || ''}
-              onChange={handleScheduleChange}
-            />
-          </div>
-          <div>
-            <label htmlFor="breakEndTime" className="block text-sm font-medium text-gray-700 mb-1">
-              Break End Time
-            </label>
-            <Input
-              id="breakEndTime"
-              type="time"
-              name="breakEndTime"
-              value={newSchedule.breakEndTime || ''}
-              onChange={handleScheduleChange}
-            />
-          </div>
-        </div>
-        <fieldset>
-          <legend className="block text-sm font-medium text-gray-700 mb-2">Working Days</legend>
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-7 gap-2">
-            {['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].map(day => (
-              <label key={day} className="flex items-center space-x-2">
-                <input
-                  type="checkbox"
-                  name={`days.${day}`}
-                  checked={newSchedule.days?.[day as keyof typeof newSchedule.days] || false}
-                  onChange={handleScheduleChange}
-                  className="rounded border-gray-300 text-[#1669AE] focus:ring-[#1669AE]"
-                />
-                <span className="text-sm text-gray-700 capitalize">{day}</span>
-              </label>
-            ))}
-          </div>
-        </fieldset>
-        <div className="flex justify-end space-x-2 mt-4">
-          <Button
-            variant="outline"
-            onClick={() => setShowScheduleForm(false)}
-          >
-            Cancel
-          </Button>
-          <Button
-            onClick={handleSubmitSchedule}
-            className="bg-[#1669AE] hover:bg-[#135a94]"
-          >
-            {editingScheduleId ? 'Update Schedule' : 'Add Schedule'}
-          </Button>
-        </div>
-      </div>
-    )}
-    {doctorSchedules.length === 0 ? (
-      <div className="bg-gray-50 rounded-lg p-8 text-center">
-        <Calendar className="mx-auto h-12 w-12 text-gray-400" />
-        <h3 className="mt-2 text-sm font-medium text-gray-900">No schedules found</h3>
-        <p className="mt-1 text-sm text-gray-500">Add schedules to manage doctor availability</p>
-      </div>
-    ) : (
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="bg-gray-50">
-              <th className="px-4 py-3 text-left font-medium text-gray-700">Doctor</th>
-              <th className="px-4 py-3 text-left font-medium text-gray-700">Specialization</th>
-              <th className="px-4 py-3 text-left font-medium text-gray-700">Working Days</th>
-              <th className="px-4 py-3 text-left font-medium text-gray-700">Hours</th>
-              <th className="px-4 py-3 text-left font-medium text-gray-700">Break</th>
-              <th className="px-4 py-3 text-left font-medium text-gray-700">Slot Duration</th>
-              <th className="px-4 py-3 text-left font-medium text-gray-700">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {doctorSchedules.map(schedule => (
-              <tr key={schedule.id} className="border-b hover:bg-gray-50">
-                <td className="px-4 py-4">{schedule.doctorName}</td>
-                <td className="px-4 py-4">{schedule.specialization}</td>
-                <td className="px-4 py-4">{Object.entries(schedule.days).filter(([_, value]) => value).map(([day]) => day.charAt(0).toUpperCase() + day.slice(1)).join(', ')}</td>
-                <td className="px-4 py-4">{schedule.startTime} - {schedule.endTime}</td>
-                <td className="px-4 py-4">{schedule.breakStartTime && schedule.breakEndTime ? `${schedule.breakStartTime} - ${schedule.breakEndTime}` : 'No break'}</td>
-                <td className="px-4 py-4">{schedule.slotDuration} mins</td>
-                <td className="px-4 py-4 flex items-center gap-2">
-                  <button
-                    onClick={() => handleEditSchedule(schedule.id)}
-                    className="text-[#1669AE] hover:text-[#135a94] text-sm font-medium"
-                  >
-                    Edit
-                  </button>
-                  <button
-                    onClick={() => handleDeleteSchedule(schedule.id)}
-                    className="text-red-600 hover:text-red-800 text-sm font-medium"
-                  >
-                    Delete
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    )}
-  </div>
-)}
 {activeTab === 'appointments' && (
 <div className="bg-white rounded-xl shadow-sm p-6">
 <div className="flex justify-between items-center mb-6">
@@ -1687,6 +1711,7 @@ they will appear here</p>
 <tr className="bg-gray-50">
 <th className="px-4 py-3 text-left font-medium text-gray-700">Patient</th>
 <th className="px-4 py-3 text-left font-medium text-gray-700">Doctor</th>
+<th className="px-4 py-3 text-left font-medium text-gray-700">Type of Consultation</th>
 <th className="px-4 py-3 text-left font-medium text-gray-700">Date</th>
 <th className="px-4 py-3 text-left font-medium text-gray-700">Time</th>
 <th className="px-4 py-3 text-left font-medium text-gray-700">Status</th>
@@ -1707,6 +1732,27 @@ they will appear here</p>
                   <div className="font-medium">{appointment.doctorName}</div>
                   <div className="text-xs text-gray-500">{appointment.specialization}</div>
                 </td>
+                <td className="px-4 py-4">
+                  <div className="font-medium capitalize">
+                    {appointment.consultationType ? (
+                      <span className={`px-2 py-1 rounded-full text-xs ${
+                        appointment.consultationType === 'virtual' ? 'bg-blue-100 text-blue-800' :
+                        appointment.consultationType === 'home' ? 'bg-green-100 text-green-800' :
+                        appointment.consultationType === 'clinic' ? 'bg-purple-100 text-purple-800' :
+                        'bg-gray-100 text-gray-800'
+                      }`}>
+                        {appointment.consultationType === 'virtual' ? 'Virtual' :
+                         appointment.consultationType === 'home' ? 'Home Visit' :
+                         appointment.consultationType === 'clinic' ? 'Clinic Visit' :
+                         appointment.consultationType}
+                      </span>
+                    ) : (
+                      <span className="px-2 py-1 rounded-full text-xs bg-gray-100 text-gray-600">
+                        Clinic Visit
+                      </span>
+                    )}
+                  </div>
+                </td>
                 <td className="px-4 py-4">{appointment.date}</td>
                 <td className="px-4 py-4">{appointment.time}</td>
                 <td className="px-4 py-4">
@@ -1720,69 +1766,241 @@ they will appear here</p>
                   </span>
                 </td>
                 <td className="px-4 py-4">
-                  <div className="flex items-center gap-2">
-                    {/* Manual Assign Button & Dropdown */}
-                    {isUnassigned || appointment.status === 'pending' ? (
+                  <div className="flex flex-col gap-2">
+                    {/* Smart Assign Button & Popup - Hide for completed and cancelled appointments */}
+                    {(isUnassigned || appointment.status === 'pending') && 
+                     updatedStatus !== 'completed' && 
+                     updatedStatus !== 'cancelled' && 
+                     appointment.status !== 'cancelled' ? (
                       assigningAppointmentId === appointment.id ? (
+                        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40">
+                          <div className="bg-white rounded-lg shadow-lg p-6 relative min-w-[400px] max-w-[600px]">
+                            <button
+                              className="absolute top-2 right-2 text-gray-500 hover:text-gray-700 text-xl"
+                              onClick={() => {
+                                setAssigningAppointmentId(null);
+                                setSelectedAssignDoctorId(null);
+                                setAvailableDoctorsForAppointment([]);
+                              }}
+                              aria-label="Close"
+                            >
+                              ×
+                            </button>
+                            
+                            <h3 className="text-lg font-bold mb-4 text-[#2563eb]">Smart Doctor Assignment</h3>
+                            
+                            {/* Patient Location Info */}
+                            <div className="mb-4 bg-blue-50 p-3 rounded-lg">
+                              <h4 className="font-medium text-blue-800 mb-2">Patient Location</h4>
+                              <div className="grid grid-cols-2 gap-4 text-sm">
+                                <div>
+                                  <span className="text-gray-600">State:</span>
+                                  <span className="ml-2 font-medium">
+                                    {(() => {
+                                      const user = users.find(u => u.id === appointment.userId);
+                                      return user?.state || appointment.state || appointment.userAddress?.state || 'Not specified';
+                                    })()}
+                                  </span>
+                                </div>
+                                <div>
+                                  <span className="text-gray-600">City:</span>
+                                  <span className="ml-2 font-medium">
+                                    {(() => {
+                                      const user = users.find(u => u.id === appointment.userId);
+                                      return user?.city || appointment.city || appointment.userAddress?.city || 'Not specified';
+                                    })()}
+                                  </span>
+                                </div>
+                                <div>
+                                  <span className="text-gray-600">Area/Locality:</span>
+                                  <span className="ml-2 font-medium">
+                                    {(() => {
+                                      const user = users.find(u => u.id === appointment.userId);
+                                      return user?.area || user?.locality || user?.address?.area || user?.address?.locality || 
+                                             appointment.area || appointment.locality || appointment.userAddress?.area || 'Not specified';
+                                    })()}
+                                  </span>
+                                </div>
+                                <div>
+                                  <span className="text-gray-600">Pincode:</span>
+                                  <span className="ml-2 font-medium">
+                                    {(() => {
+                                      const user = users.find(u => u.id === appointment.userId);
+                                      return user?.pincode || appointment.pincode || appointment.userAddress?.pincode || 'Not specified';
+                                    })()}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Appointment Info */}
+                            <div className="mb-4 bg-gray-50 p-3 rounded-lg">
+                              <div className="text-sm text-gray-600">
+                                <span className="font-medium">{(appointment as any).consultationType?.toUpperCase() || 'CLINIC'}</span> visit at {appointment.time}
+                              </div>
+                            </div>
+
+                            {/* Availability Check Button */}
+                            <div className="mb-4">
+                              <button
+                                className={`w-full py-2 px-4 rounded-lg ${
+                                  checkingAvailability 
+                                    ? 'bg-purple-100 text-purple-800 cursor-not-allowed' 
+                                    : 'bg-purple-600 text-white hover:bg-purple-700'
+                                }`}
+                                disabled={checkingAvailability}
+                                onClick={() => checkAvailableDoctorsForAppointment(appointment)}
+                              >
+                                {checkingAvailability ? 'Checking Available Doctors...' : 'Check Available Doctors'}
+                              </button>
+                            </div>
+                            
+                            {/* Available Doctors List */}
+                            {availableDoctorsForAppointment.length > 0 && (
+                              <div className="mb-4">
+                                <h4 className="font-medium text-gray-700 mb-2">Available Doctors</h4>
+                                <div className="max-h-60 overflow-y-auto">
+                                  {availableDoctorsForAppointment.map(doctor => (
+                                    <div 
+                                      key={doctor.doctorId}
+                                      className={`p-3 mb-2 rounded-lg border cursor-pointer transition-colors ${
+                                        selectedAssignDoctorId === doctor.doctorId
+                                          ? 'border-blue-500 bg-blue-50'
+                                          : 'border-gray-200 hover:border-blue-300'
+                                      }`}
+                                      onClick={() => setSelectedAssignDoctorId(doctor.doctorId)}
+                                    >
+                                      <div className="font-medium text-gray-800">Dr. {doctor.doctorName}</div>
+                                      <div className="text-sm text-gray-600">{doctor.specialization}</div>
+                                      <div className="text-xs text-gray-500 mt-2 space-y-1.5">
+                                        <div className="grid grid-cols-2 gap-2">
+                                          <div>
+                                            <span className="font-medium">🏛️ State:</span>
+                                            <span className="ml-1">
+                                              {(() => {
+                                                const doctorUser = users.find(u => u.id === doctor.doctorId);
+                                                return doctorUser?.state || doctor.state || doctor.address?.state || '-';
+                                              })()}
+                                            </span>
+                                          </div>
+                                          <div>
+                                            <span className="font-medium">🏢 City:</span>
+                                            <span className="ml-1">
+                                              {(() => {
+                                                const doctorUser = users.find(u => u.id === doctor.doctorId);
+                                                return doctorUser?.city || doctor.city || doctor.address?.city || '-';
+                                              })()}
+                                            </span>
+                                          </div>
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-2">
+                                          <div>
+                                            <span className="font-medium">📍 Area/Locality:</span>
+                                            <span className="ml-1">
+                                              {(() => {
+                                                const doctorUser = users.find(u => u.id === doctor.doctorId);
+                                                return doctorUser?.area || doctorUser?.locality || doctorUser?.address?.area || doctorUser?.address?.locality ||
+                                                       doctor.area || doctor.locality || doctor.address?.area || doctor.address?.locality || '-';
+                                              })()}
+                                            </span>
+                                          </div>
+                                          <div>
+                                            <span className="font-medium">📮 Pincode:</span>
+                                            <span className="ml-1">
+                                              {(() => {
+                                                const doctorUser = users.find(u => u.id === doctor.doctorId);
+                                                return doctorUser?.pincode || doctor.pincode || doctor.address?.pincode || '-';
+                                              })()}
+                                            </span>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            
+                            {/* Status Messages */}
+                            {availableDoctorsForAppointment.length > 0 ? (
+                              <div className="text-sm text-green-600 bg-green-50 p-3 rounded-lg mb-4">
+                                ✅ {availableDoctorsForAppointment.length} doctors available for this time slot
+                              </div>
+                            ) : assigningAppointmentId === appointment.id && !checkingAvailability ? (
+                              <div className="text-sm text-orange-600 bg-orange-50 p-3 rounded-lg mb-4">
+                                ⚠️ No doctors available for this time slot. Try a different time or check for conflicts.
+                              </div>
+                            ) : null}
+                            
+                            {/* Action Buttons */}
+                            <div className="flex justify-end gap-3">
+                              <button
+                                className="px-4 py-2 text-gray-600 hover:text-gray-800"
+                                onClick={() => {
+                                  setAssigningAppointmentId(null);
+                                  setSelectedAssignDoctorId(null);
+                                  setAvailableDoctorsForAppointment([]);
+                                }}
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                className={`px-4 py-2 rounded-lg ${
+                                  selectedAssignDoctorId
+                                    ? 'bg-green-600 text-white hover:bg-green-700'
+                                    : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                                }`}
+                                disabled={!selectedAssignDoctorId}
+                                onClick={() => selectedAssignDoctorId && handleAssignDoctor(appointment.id, selectedAssignDoctorId)}
+                              >
+                                Assign Selected Doctor
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <button
+                          className="inline-flex items-center gap-2 px-3 py-1 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors"
+                          onClick={() => {
+                            setAssigningAppointmentId(appointment.id);
+                            setAvailableDoctorsForAppointment([]);
+                          }}
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                          </svg>
+                          Smart Assign
+                        </button>
+                      )
+                    ) : null}
+                    
+                    {/* Existing actions (Confirm/Cancel/Complete) */}
+                    <div className="flex items-center gap-2">
+                      {appointment.status === 'pending' && (
                         <>
-                          <select
-                            className="border rounded px-2 py-1 text-sm"
-                            value={selectedAssignDoctorId || ''}
-                            onChange={e => setSelectedAssignDoctorId(e.target.value)}
-                          >
-                            <option value="">Select Doctor</option>
-                            {users.filter(u => u.role === 'doctor' && u.status === 'approved').map(doc => (
-                              <option key={doc.id} value={doc.id}>{doc.name} ({doc.specialization || 'General'})</option>
-                            ))}
-                          </select>
                           <button
-                            className="ml-2 text-green-600 hover:underline text-sm"
-                            disabled={!selectedAssignDoctorId}
-                            onClick={() => selectedAssignDoctorId && handleAssignDoctor(appointment.id, selectedAssignDoctorId)}
+                            className="text-green-600 hover:underline text-sm"
+                            onClick={() => updateAppointmentStatus(appointment.id, 'confirmed')}
                           >
-                            Assign
+                            Confirm
                           </button>
                           <button
-                            className="ml-2 text-gray-500 hover:underline text-sm"
-                            onClick={() => { setAssigningAppointmentId(null); setSelectedAssignDoctorId(null); }}
+                            className="text-red-600 hover:underline text-sm"
+                            onClick={() => updateAppointmentStatus(appointment.id, 'cancelled')}
                           >
                             Cancel
                           </button>
                         </>
-                      ) : (
+                      )}
+                      {appointment.status === 'confirmed' && (
                         <button
                           className="text-blue-600 hover:underline text-sm"
-                          onClick={() => setAssigningAppointmentId(appointment.id)}
+                          onClick={() => setCompleteConfirm({ show: true, appointmentId: appointment.id })}
                         >
-                          Assign
+                          Complete
                         </button>
-                      )
-                    ) : null}
-                    {/* Existing actions (Confirm/Cancel/Complete) */}
-                    {appointment.status === 'pending' && (
-                      <>
-                        <button
-                          className="text-green-600 hover:underline text-sm"
-                          onClick={() => updateAppointmentStatus(appointment.id, 'confirmed')}
-                        >
-                          Confirm
-                        </button>
-                        <button
-                          className="text-red-600 hover:underline text-sm ml-2"
-                          onClick={() => updateAppointmentStatus(appointment.id, 'cancelled')}
-                        >
-                          Cancel
-                        </button>
-                      </>
-                    )}
-                    {appointment.status === 'confirmed' && (
-                      <button
-                        className="text-blue-600 hover:underline text-sm"
-                        onClick={() => setCompleteConfirm({ show: true, appointmentId: appointment.id })}
-                      >
-                        Complete
-                      </button>
-                    )}
+                      )}
+                    </div>
                   </div>
                 </td>
               </tr>
@@ -1793,6 +2011,129 @@ they will appear here</p>
     </div>
 )}</div>
 )}
+
+{activeTab === 'orders' && (
+<div className="bg-white rounded-xl shadow-sm p-6">
+<div className="flex justify-between items-center mb-6">
+<h2 className="text-xl font-semibold">Product Orders</h2>
+<div className="text-sm text-gray-500">
+{orders.length} total orders
+</div>
+</div>
+{orders.length === 0 ? (
+<div className="bg-gray-50 rounded-lg p-8 text-center">
+<Package className="mx-auto h-12 w-12 text-gray-400" />
+<h3 className="mt-2 text-sm font-medium text-gray-900">No orders found</h3>
+<p className="mt-1 text-sm text-gray-500">When users place orders, they will appear here</p>
+</div>
+) : (
+<div className="overflow-x-auto">
+<table className="w-full text-sm">
+<thead>
+<tr className="bg-gray-50">
+<th className="px-4 py-3 text-left font-medium text-gray-700">Order ID</th>
+<th className="px-4 py-3 text-left font-medium text-gray-700">Customer</th>
+<th className="px-4 py-3 text-left font-medium text-gray-700">Items</th>
+<th className="px-4 py-3 text-left font-medium text-gray-700">Total Amount</th>
+<th className="px-4 py-3 text-left font-medium text-gray-700">Payment Method</th>
+<th className="px-4 py-3 text-left font-medium text-gray-700">Status</th>
+<th className="px-4 py-3 text-left font-medium text-gray-700">Order Date</th>
+<th className="px-4 py-3 text-left font-medium text-gray-700">Actions</th>
+</tr>
+</thead>
+<tbody>
+{orders.map(order => (
+<tr key={order.id} className="border-b hover:bg-gray-50">
+<td className="px-4 py-4">
+<div className="font-medium">{order.id}</div>
+</td>
+<td className="px-4 py-4">
+<div className="font-medium">{order.userName || "Unknown User"}</div>
+<div className="text-xs text-gray-500">{order.customerDetails.firstName} {order.customerDetails.lastName}</div>
+<div className="text-xs text-gray-500">{order.customerDetails.email}</div>
+<div className="text-xs text-gray-500">{order.customerDetails.phone}</div>
+</td>
+<td className="px-4 py-4">
+<div className="space-y-1">
+{order.items.slice(0, 2).map((item, index) => (
+<div key={index} className="text-xs">
+{item.name} (x{item.quantity})
+</div>
+))}
+{order.items.length > 2 && (
+<div className="text-xs text-gray-500">
++{order.items.length - 2} more items
+</div>
+)}
+</div>
+</td>
+<td className="px-4 py-4">
+<div className="font-medium">₹{order.totalAmount}</div>
+</td>
+<td className="px-4 py-4">
+<div className="capitalize">
+{order.paymentMethod === 'cod' ? 'Cash on Delivery' : 'Online Payment'}
+</div>
+</td>
+<td className="px-4 py-4">
+<span className={`px-2 py-1 rounded-full text-xs font-medium ${
+order.status === 'delivered' ? 'bg-green-100 text-green-800' :
+order.status === 'confirmed' ? 'bg-blue-100 text-blue-800' :
+order.status === 'dispatched' ? 'bg-purple-100 text-purple-800' :
+order.status === 'cancelled' ? 'bg-red-100 text-red-800' :
+'bg-yellow-100 text-yellow-800'
+}`}>
+{order.status}
+</span>
+</td>
+<td className="px-4 py-4">
+{new Date(order.orderDate).toLocaleDateString()}
+</td>
+<td className="px-4 py-4">
+<div className="flex flex-col gap-1">
+{order.status === 'pending' && (
+<>
+<button
+className="px-3 py-1 bg-green-600 text-white text-xs rounded hover:bg-green-700"
+onClick={() => updateOrderStatus(order.id, 'confirmed')}
+>
+Confirm
+</button>
+<button
+className="px-3 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700"
+onClick={() => updateOrderStatus(order.id, 'cancelled')}
+>
+Cancel
+</button>
+</>
+)}
+{order.status === 'confirmed' && (
+<button
+className="px-3 py-1 bg-purple-600 text-white text-xs rounded hover:bg-purple-700"
+onClick={() => updateOrderStatus(order.id, 'dispatched')}
+>
+Dispatch
+</button>
+)}
+{order.status === 'dispatched' && (
+<button
+className="px-3 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700"
+onClick={() => updateOrderStatus(order.id, 'delivered')}
+>
+Mark Delivered
+</button>
+)}
+</div>
+</td>
+</tr>
+))}
+</tbody>
+</table>
+</div>
+)}
+</div>
+)}
+
 {activeTab === 'organizations' && (
 <div className="bg-white rounded-xl shadow-sm p-6">
 <div className="flex justify-between items-center mb-6">
@@ -1848,7 +2189,8 @@ they will appear here</p>
 <div className="text-xs text-gray-500">{booking.preferredTime}</div>
 </td>
 <td className="px-4 py-4">
-<span className={`px-2 py-1 rounded-full text-xs font-medium ${
+<div className="flex flex-col">
+<span className={`px-2 py-1 rounded-full text-xs font-medium w-fit ${
 booking.status === 'completed' ? 'bg-blue-100 text-blue-800' :
 booking.status === 'contacted' ? 'bg-green-100 text-green-800' :
 booking.status === 'scheduled' ? 'bg-purple-100 text-purple-800' :
@@ -1857,6 +2199,12 @@ booking.status === 'cancelled' ? 'bg-red-100 text-red-800' :
 }`}>
 {booking.status}
 </span>
+{booking.autoCompletedAt && (
+<div className="text-xs text-gray-500 mt-1">
+Auto-completed ({booking.autoCompletedReason})
+</div>
+)}
+</div>
 </td>
 <td className="px-4 py-4">
 <div className="space-y-1">
@@ -1884,6 +2232,16 @@ Submitted: {new Date(booking.submittedAt).toLocaleDateString()}
 {booking.adminNotes && (
 <div className="text-xs text-gray-600">
 <strong>Admin Notes:</strong> {booking.adminNotes}
+</div>
+)}
+{booking.autoCompletedAt && (
+<div className="text-xs text-orange-600 border-t pt-1 mt-1">
+<strong>Auto-completed:</strong> {new Date(booking.autoCompletedAt).toLocaleString()}
+<br />
+<strong>Reason:</strong> {booking.autoCompletedReason}
+{booking.autoCompletedDate && (
+<span> (Date: {booking.autoCompletedDate})</span>
+)}
 </div>
 )}
 </div>

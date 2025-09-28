@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from "react";
+import { fetchCitiesAndAreas } from "@/services/mapmyindiaService";
+import { INDIAN_STATES } from "@/constants/indianStates";
 import { useNavigate } from "react-router-dom";
 import StepCategory from "@/pages/onboarding/StepCategory";
 import StepDisability from "@/pages/onboarding/StepDisability";
@@ -34,31 +36,14 @@ async function handleFileUpload(file: File, user: { id: string, name: string, em
   };
 }
 
-// Indian states and cities
-const STATES_WITH_CITIES: Record<string, string[]> = {
-  "Andhra Pradesh": [
-    "Visakhapatnam", "Vijayawada", "Guntur", "Nellore", "Kurnool", 
-    "Rajahmundry", "Tirupati", "Kakinada", "Kadapa", "Anantapur"
-  ],
-  "Karnataka": [
-    "Bengaluru", "Mysuru", "Mangalore", "Hubballi", "Belagavi",
-    "Kalaburagi", "Davanagere", "Ballari", "Shivamogga", "Tumakuru"
-  ],
-  "Kerala": [
-    "Thiruvananthapuram", "Kochi", "Kozhikode", "Kollam", "Thrissur",
-    "Alappuzha", "Palakkad", "Malappuram", "Kottayam", "Kannur"
-  ],
-  "Tamil Nadu": [
-    "Chennai", "Coimbatore", "Madurai", "Tiruchirappalli", "Salem",
-    "Tirunelveli", "Vellore", "Erode", "Thoothukudi", "Dindigul"
-  ],
-  "Telangana": [
-    "Hyderabad", "Warangal", "Nizamabad", "Khammam", "Karimnagar",
-    "Ramagundam", "Mahbubnagar", "Nalgonda", "Adilabad", "Suryapet"
-  ],
-  "Puducherry": ["Puducherry", "Karaikal", "Mahe", "Yanam"]
-};
-const STATES = Object.keys(STATES_WITH_CITIES);
+
+
+// These must be inside a component, not at the top level!
+// Remove from here. Will move to Onboarding component below.
+
+
+// These must be inside a component, not at the top level!
+// Remove from here. Will move to Onboarding component below.
 
 const specializations = [
   "Public Health Dentistry",
@@ -73,7 +58,7 @@ const specializations = [
   "General Dentistry"
 ];
 
-const initialData = {
+export const initialData = {
   fullName: "",
   age: "",
   gender: "",
@@ -117,17 +102,6 @@ const initialData = {
   additionalNotes: ""
 };
 
-const userSteps = [
-  "BasicInfo",
-  "Category",
-  "Disability",
-  "Medical",
-  "Preferences",
-  "Consent",
-  "Optional"
-];
-const doctorSteps = ["Credentials"];
-const organizationSteps = ["OrganizationInfo"];
 
 const tabClasses = (active: boolean) =>
   `flex-1 py-3 font-semibold text-base transition-colors duration-150 flex items-center justify-center gap-2 ${
@@ -257,24 +231,117 @@ const OrganizationRegistrationSuccess = ({ organizationName, onClose }: { organi
   );
 };
 
-const renderUserBasicInfo = (
-  formData: typeof initialData,
-  updateFormData: (data: Partial<typeof initialData>) => void,
-  nextStep: () => void,
-  errors: Record<string, string>,
-  setErrors: (errors: Record<string, string>) => void,
-  emailVerified: boolean,
-  setEmailVerified: (verified: boolean) => void,
-  otpError: string,
-  setOtpError: (error: string) => void,
-  captcha: string,
-  captchaInput: string,
-  captchaVerified: boolean,
-  setCaptchaInput: (input: string) => void,
-  setCaptchaVerified: (verified: boolean) => void,
-  handleCaptchaRefresh: () => void,
-  handleCaptchaVerify: () => void
-) => {
+interface RenderUserBasicInfoProps {
+  formData: typeof initialData;
+  updateFormData: (data: Partial<typeof initialData>) => void;
+  nextStep: () => void;
+  errors: Record<string, string>;
+  setErrors: (errors: Record<string, string>) => void;
+  emailVerified: boolean;
+  setEmailVerified: (verified: boolean) => void;
+  otpError: string;
+  setOtpError: (error: string) => void;
+  captcha: string;
+  captchaInput: string;
+  captchaVerified: boolean;
+  setCaptchaInput: (input: string) => void;
+  setCaptchaVerified: (verified: boolean) => void;
+  handleCaptchaRefresh: () => void;
+  handleCaptchaVerify: () => void;
+  cityQuery: string;
+  setCityQuery: React.Dispatch<React.SetStateAction<string>>;
+  cityResults: any[];
+  isLoadingCities: boolean;
+  fetchCities: (query: string) => Promise<void>;
+  areaQuery: string;
+  setAreaQuery: React.Dispatch<React.SetStateAction<string>>;
+  areaResults: any[];
+  isLoadingAreas: boolean;
+  fetchAreas: (query: string) => Promise<void>;
+  setCityResults: React.Dispatch<React.SetStateAction<any[]>>;
+  setAreaResults: React.Dispatch<React.SetStateAction<any[]>>;
+}
+
+const renderUserBasicInfo = ({
+  formData,
+  updateFormData,
+  nextStep,
+  errors,
+  setErrors,
+  emailVerified,
+  setEmailVerified,
+  otpError,
+  setOtpError,
+  captcha,
+  captchaInput,
+  captchaVerified,
+  setCaptchaInput,
+  setCaptchaVerified,
+  handleCaptchaRefresh,
+  handleCaptchaVerify,
+  cityQuery,
+  setCityQuery,
+  cityResults,
+  isLoadingCities,
+  fetchCities,
+  areaQuery,
+  setAreaQuery,
+  areaResults,
+  isLoadingAreas,
+  fetchAreas,
+  setCityResults,
+  setAreaResults
+}: RenderUserBasicInfoProps) => {
+  // Function to validate pincode and update location
+  const verifyAndUpdateLocation = async (pincode: string) => {
+    try {
+      const response = await fetch(`https://api.postalpincode.in/pincode/${pincode}`);
+      const data = await response.json();
+      
+      if (data[0].Status === "Success") {
+        const location = data[0].PostOffice[0];
+        const state = location.State;
+        const city = location.District;
+        const area = location.Name;
+        
+        // Show a temporary notification about the update
+        const newErrors = { ...errors, pincode: `Location updated based on pincode: ${city}, ${state}` };
+        setErrors(newErrors);
+        
+        // Clear the notification after 3 seconds
+        setTimeout(() => {
+          setErrors({ ...errors, pincode: "" });
+        }, 3000);
+        
+        // Always update the location fields with verified data
+        updateFormData({
+          state,
+          city,
+          area,
+          pincode
+        });
+        
+        // Update the queries to match the verified data
+        setCityQuery(city);
+        setAreaQuery(area);
+        setCityResults([]);
+        setAreaResults([]);
+        
+      } else {
+        setErrors({
+          ...errors,
+          pincode: "Invalid pincode. Please enter a valid 6-digit pincode."
+        });
+      }
+    } catch (error) {
+      setErrors({
+        ...errors,
+        pincode: "Error validating pincode. Please try again."
+      });
+    }
+  };
+  // Function to validate pincode and fetch location details
+  // Function to validate pincode and fetch location details
   const validate = () => {
     const newErrors: Record<string, string> = {};
     if (!formData.fullName) newErrors.fullName = "Full Name required";
@@ -314,8 +381,9 @@ const renderUserBasicInfo = (
       </div>
       
       <div className="mb-4">
-        <label className={labelClasses}>Full Name</label>
+        <label className={labelClasses} htmlFor="fullNameInput">Full Name</label>
         <input
+          id="fullNameInput"
           type="text"
           className={inputClasses}
           placeholder="Full Name"
@@ -326,8 +394,9 @@ const renderUserBasicInfo = (
       </div>
       
       <div className="mb-4">
-        <label className={labelClasses}>Age</label>
+        <label className={labelClasses} htmlFor="ageInput">Age</label>
         <input
+          id="ageInput"
           type="number"
           className={inputClasses}
           placeholder="Age"
@@ -340,8 +409,9 @@ const renderUserBasicInfo = (
       </div>
       
       <div className="mb-4">
-        <label className={labelClasses}>Gender</label>
+        <label className={labelClasses} htmlFor="genderSelect">Gender</label>
         <select
+          id="genderSelect"
           className={inputClasses}
           value={formData.gender}
           onChange={(e) => updateFormData({ gender: e.target.value })}
@@ -355,8 +425,9 @@ const renderUserBasicInfo = (
       </div>
       
       <div className="mb-4">
-        <label className={labelClasses}>Phone Number</label>
+        <label className={labelClasses} htmlFor="phoneInput">Phone Number</label>
         <input
+          id="phoneInput"
           type="text"
           className={inputClasses}
           placeholder="10-digit Phone Number"
@@ -372,8 +443,9 @@ const renderUserBasicInfo = (
       </div>
       
       <div className="mb-4">
-        <label className={labelClasses}>Email</label>
+        <label className={labelClasses} htmlFor="emailInput">Email</label>
         <input
+          id="emailInput"
           type="email"
           className={inputClasses}
           placeholder="Email"
@@ -412,8 +484,9 @@ const renderUserBasicInfo = (
       {otpError && <div className={errorClasses}>{otpError}</div>}
       
       <div className="mb-4">
-        <label className={labelClasses}>Password</label>
+        <label className={labelClasses} htmlFor="passwordInput">Password</label>
         <input
+          id="passwordInput"
           type="password"
           className={inputClasses}
           placeholder="Password"
@@ -427,8 +500,9 @@ const renderUserBasicInfo = (
       </div>
       
       <div className="mb-4">
-        <label className={labelClasses}>Confirm Password</label>
+        <label className={labelClasses} htmlFor="confirmPasswordInput">Confirm Password</label>
         <input
+          id="confirmPasswordInput"
           type="password"
           className={inputClasses}
           placeholder="Confirm Password"
@@ -438,72 +512,143 @@ const renderUserBasicInfo = (
         {errors.confirmPassword && <div className={errorClasses}>{errors.confirmPassword}</div>}
       </div>
       
+
+
       <div className="mb-4">
-        <label className={labelClasses}>State</label>
+        <label className={labelClasses} htmlFor="stateInput">State</label>
         <select
+          id="stateInput"
           className={inputClasses}
           value={formData.state}
-          onChange={(e) => {
-            updateFormData({ state: e.target.value, city: "" });
+          onChange={e => {
+            updateFormData({ state: e.target.value, city: "", area: "" });
+            setCityQuery("");
+            setAreaQuery("");
+            setCityResults([]);
+            setAreaResults([]);
           }}
         >
-          <option value="">Select State</option>
-          {STATES.map((state) => (
-            <option key={state} value={state}>
-              {state}
-            </option>
+          <option value="">Select state</option>
+          {INDIAN_STATES.map(state => (
+            <option key={state} value={state}>{state}</option>
           ))}
         </select>
         {errors.state && <div className={errorClasses}>{errors.state}</div>}
       </div>
-      
+
       <div className="mb-4">
-        <label className={labelClasses}>City</label>
-        <select
+        <label className={labelClasses} htmlFor="cityInput">City</label>
+        <input
+          id="cityInput"
           className={inputClasses}
-          value={formData.city}
-          onChange={(e) => updateFormData({ city: e.target.value })}
+          placeholder="Type city name"
+          value={cityQuery}
+          onChange={async (e) => {
+            setCityQuery(e.target.value);
+            await fetchCities(e.target.value + (formData.state ? `,${formData.state}` : ""));
+          }}
+          autoComplete="off"
           disabled={!formData.state}
-        >
-          <option value="">Select City</option>
-          {formData.state &&
-            STATES_WITH_CITIES[formData.state]?.map((city) => (
-              <option key={city} value={city}>
-                {city}
-              </option>
-            ))}
-        </select>
+        />
+        {isLoadingCities && <div className="text-sm text-gray-500">Loading cities...</div>}
+        <div className="relative">
+          {cityResults.length > 0 && (
+            <ul className="absolute z-10 bg-white border rounded w-full max-h-40 overflow-y-auto shadow">
+              {cityResults.map((city: any) => (
+                <li
+                  key={city.id}
+                  className="px-4 py-2 hover:bg-blue-100 cursor-pointer"
+                  onClick={() => {
+                    updateFormData({ city: city.text, area: "" });
+                    setCityQuery(city.text);
+                    setCityResults([]);
+                  }}
+                >
+                  {city.text}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
         {errors.city && <div className={errorClasses}>{errors.city}</div>}
       </div>
-      
+
       <div className="mb-4">
-        <label className={labelClasses}>Area/Locality</label>
+        <label className={labelClasses} htmlFor="areaInput">Area/Locality</label>
         <input
-          type="text"
+          id="areaInput"
           className={inputClasses}
-          placeholder="Area/Locality"
-          value={formData.area}
-          onChange={(e) => updateFormData({ area: e.target.value })}
+          placeholder="Type area/locality"
+          value={areaQuery}
+          onChange={async (e) => {
+            setAreaQuery(e.target.value);
+            await fetchAreas(e.target.value + (formData.city ? `,${formData.city}` : ""));
+          }}
+          autoComplete="off"
+          disabled={!formData.city}
         />
+        {isLoadingAreas && <div className="text-sm text-gray-500">Loading areas...</div>}
+        <div className="relative">
+          {areaResults.length > 0 && (
+            <ul className="absolute z-10 bg-white border rounded w-full max-h-40 overflow-y-auto shadow">
+              {areaResults.map((area: any) => (
+                <li
+                  key={area.id}
+                  className="px-4 py-2 hover:bg-blue-100 cursor-pointer"
+                  onClick={() => {
+                    updateFormData({ area: area.text });
+                    setAreaQuery(area.text);
+                    setAreaResults([]);
+                  }}
+                >
+                  {area.text}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
         {errors.area && <div className={errorClasses}>{errors.area}</div>}
       </div>
-      
+
       <div className="mb-4">
-        <label className={labelClasses}>Pincode</label>
-        <input
-          type="text"
-          className={inputClasses}
-          placeholder="Pincode"
-          value={formData.pincode}
-          maxLength={6}
-          onChange={(e) => updateFormData({ pincode: e.target.value })}
-        />
+        <label className={labelClasses} htmlFor="pincodeInput">Pincode</label>
+        <div className="flex gap-2">
+          <input
+            id="pincodeInput"
+            type="text"
+            className={inputClasses}
+            placeholder="Pincode"
+            value={formData.pincode}
+            maxLength={6}
+            onChange={(e) => {
+              const pincode = e.target.value;
+              // Allow only digits
+              if (/^\d*$/.test(pincode)) {
+                updateFormData({ pincode });
+                // Clear validation error when user starts typing
+                if (errors.pincode) {
+                  setErrors({ ...errors, pincode: "" });
+                }
+                // Auto-validate when 6 digits are entered
+                if (pincode.length === 6) {
+                  verifyAndUpdateLocation(pincode);
+                }
+              }
+            }}
+          />
+          <button
+            type="button"
+            className="px-4 py-2 bg-[#1669AE] text-white rounded-lg hover:bg-[#135a94] disabled:opacity-50"
+            onClick={() => verifyAndUpdateLocation(formData.pincode)}
+            disabled={!formData.pincode || formData.pincode.length !== 6}
+          >
+            Verify
+          </button>
+        </div>
         {errors.pincode && <div className={errorClasses}>{errors.pincode}</div>}
-      </div>
-      
-      {/* CAPTCHA Section */}
+      </div>      {/* CAPTCHA Section */}
       <div className="mb-4">
-        <label className={labelClasses}>Security Verification</label>
+        <label className={labelClasses} htmlFor="captchaInput">Security Verification</label>
         <div className="mb-3">
         {/* Audio CAPTCHA for accessibility */}
         <AudioCaptcha captchaText={captcha} className="mb-3" />
@@ -582,6 +727,20 @@ const renderOrganizationInfo = (
     if (!formData.state) newErrors.state = "State required";
     if (!formData.city) newErrors.city = "City required";
     
+    // Date validation - same as consultation booking
+    if (formData.preferredDate) {
+      const selectedDate = new Date(formData.preferredDate);
+      const today = new Date();
+      const minDate = new Date(today.getTime() + 2 * 24 * 60 * 60 * 1000); // 2 days from today
+      const maxDate = new Date(today.getTime() + 2 * 30 * 24 * 60 * 60 * 1000); // 2 months from today
+      
+      if (selectedDate < minDate) {
+        newErrors.preferredDate = `You can only book after 2 days from today (starting from ${minDate.toLocaleDateString()})`;
+      } else if (selectedDate > maxDate) {
+        newErrors.preferredDate = `You can only book up to 2 months in advance (until ${maxDate.toLocaleDateString()})`;
+      }
+    }
+    
     // Check if preferred date is already booked
     if (formData.preferredDate && bookedDates.has(formData.preferredDate)) {
       newErrors.preferredDate = "This date is already booked. Please select a different date.";
@@ -657,8 +816,9 @@ const renderOrganizationInfo = (
       </div>
       
       <div className="mb-4">
-        <label className={labelClasses}>Your Designation *</label>
+        <label className={labelClasses} htmlFor="orgDesignationInput">Your Designation *</label>
         <input
+          id="orgDesignationInput"
           type="text"
           className={inputClasses}
           placeholder="e.g., Manager, Coordinator, Director"
@@ -669,8 +829,9 @@ const renderOrganizationInfo = (
       </div>
       
       <div className="mb-4">
-        <label className={labelClasses}>Contact Phone *</label>
+        <label className={labelClasses} htmlFor="orgPhoneInput">Contact Phone *</label>
         <input
+          id="orgPhoneInput"
           type="tel"
           className={inputClasses}
           placeholder="10-digit mobile number"
@@ -682,8 +843,9 @@ const renderOrganizationInfo = (
       </div>
       
       <div className="mb-4">
-        <label className={labelClasses}>Contact Email *</label>
+        <label className={labelClasses} htmlFor="orgEmailInput">Contact Email *</label>
         <input
+          id="orgEmailInput"
           type="email"
           className={inputClasses}
           placeholder="Email"
@@ -721,47 +883,11 @@ const renderOrganizationInfo = (
       
       {otpError && <div className={errorClasses}>{otpError}</div>}
       
+      {/* State/city dropdowns removed: now only dynamic city/area search is used */}
       <div className="mb-4">
-        <label className={labelClasses}>State *</label>
-        <select
-          className={inputClasses}
-          value={formData.state}
-          onChange={(e) => {
-            updateFormData({ state: e.target.value, city: "" });
-          }}
-        >
-          <option value="">Select State</option>
-          {STATES.map((state) => (
-            <option key={state} value={state}>
-              {state}
-            </option>
-          ))}
-        </select>
-        {errors.state && <div className={errorClasses}>{errors.state}</div>}
-      </div>
-      
-      <div className="mb-4">
-        <label className={labelClasses}>City *</label>
-        <select
-          className={inputClasses}
-          value={formData.city}
-          onChange={(e) => updateFormData({ city: e.target.value })}
-          disabled={!formData.state}
-        >
-          <option value="">Select City</option>
-          {formData.state &&
-            STATES_WITH_CITIES[formData.state]?.map((city) => (
-              <option key={city} value={city}>
-                {city}
-              </option>
-            ))}
-        </select>
-        {errors.city && <div className={errorClasses}>{errors.city}</div>}
-      </div>
-      
-      <div className="mb-4">
-        <label className={labelClasses}>Number of Beneficiaries *</label>
+        <label className={labelClasses} htmlFor="orgBeneficiariesInput">Number of Beneficiaries *</label>
         <input
+          id="orgBeneficiariesInput"
           type="number"
           className={inputClasses}
           placeholder="How many people need dental care?"
@@ -773,8 +899,9 @@ const renderOrganizationInfo = (
       </div>
       
       <div className="mb-4">
-        <label className={labelClasses}>Preferred Date</label>
+        <label className={labelClasses} htmlFor="orgPreferredDateInput">Preferred Date</label>
         <input
+          id="orgPreferredDateInput"
           type="date"
           className={`${inputClasses} ${
             formData.preferredDate && bookedDates.has(formData.preferredDate) 
@@ -782,7 +909,16 @@ const renderOrganizationInfo = (
               : ''
           }`}
           value={formData.preferredDate}
-          min={new Date().toISOString().split('T')[0]}
+          min={(() => {
+            const today = new Date();
+            const minDate = new Date(today.getTime() + 2 * 24 * 60 * 60 * 1000);
+            return minDate.toISOString().split('T')[0];
+          })()}
+          max={(() => {
+            const today = new Date();
+            const maxDate = new Date(today.getTime() + 2 * 30 * 24 * 60 * 60 * 1000);
+            return maxDate.toISOString().split('T')[0];
+          })()}
           onChange={(e) => {
             const selectedDate = e.target.value;
             updateFormData({ preferredDate: selectedDate });
@@ -793,6 +929,13 @@ const renderOrganizationInfo = (
             }
           }}
         />
+        <div className="text-sm text-gray-600 mt-1 mb-2">
+          You can book only after 2 days from today (starting from {(() => {
+            const today = new Date();
+            const minDate = new Date(today.getTime() + 2 * 24 * 60 * 60 * 1000);
+            return minDate.toLocaleDateString();
+          })()}) and up to 2 months in advance.
+        </div>
         {formData.preferredDate && bookedDates.has(formData.preferredDate) && (
           <div className="text-red-600 text-sm mt-1 mb-2">
             ⚠️ This date is already booked by another organization. Please select a different date.
@@ -807,8 +950,9 @@ const renderOrganizationInfo = (
       </div>
       
       <div className="mb-4">
-        <label className={labelClasses}>Preferred Time</label>
+        <label className={labelClasses} htmlFor="orgPreferredTimeSelect">Preferred Time</label>
         <select
+          id="orgPreferredTimeSelect"
           className={inputClasses}
           value={formData.preferredTime}
           onChange={(e) => updateFormData({ preferredTime: e.target.value })}
@@ -822,8 +966,9 @@ const renderOrganizationInfo = (
       </div>
       
       <div className="mb-4">
-        <label className={labelClasses}>Requirement Details *</label>
+        <label className={labelClasses} htmlFor="orgRequirementTextarea">Requirement Details *</label>
         <textarea
+          id="orgRequirementTextarea"
           className={inputClasses}
           placeholder="Please describe your dental care requirements, special needs, accessibility requirements, etc."
           value={formData.requirement}
@@ -834,8 +979,9 @@ const renderOrganizationInfo = (
       </div>
       
       <div className="mb-4">
-        <label className={labelClasses}>Additional Notes</label>
+        <label className={labelClasses} htmlFor="orgNotesTextarea">Additional Notes</label>
         <textarea
+          id="orgNotesTextarea"
           className={inputClasses}
           placeholder="Any additional information that would help us serve you better"
           value={formData.additionalNotes}
@@ -888,6 +1034,8 @@ const renderOrganizationInfo = (
   );
 };
 
+// Function to validate pincode and fetch location details
+
 const renderDoctorCredentials = (
   formData: typeof initialData,
   updateFormData: (data: Partial<typeof initialData>) => void,
@@ -904,8 +1052,87 @@ const renderDoctorCredentials = (
   setCaptchaInput: (input: string) => void,
   setCaptchaVerified: (verified: boolean) => void,
   handleCaptchaRefresh: () => void,
-  handleCaptchaVerify: () => void
+  handleCaptchaVerify: () => void,
+  cityQuery: string,
+  setCityQuery: React.Dispatch<React.SetStateAction<string>>,
+  cityResults: any[],
+  isLoadingCities: boolean,
+  fetchCities: (query: string) => Promise<void>,
+  areaQuery: string,
+  setAreaQuery: React.Dispatch<React.SetStateAction<string>>,
+  areaResults: any[],
+  isLoadingAreas: boolean,
+  fetchAreas: (query: string) => Promise<void>,
+  setCityResults: React.Dispatch<React.SetStateAction<any[]>>,
+  setAreaResults: React.Dispatch<React.SetStateAction<any[]>>
 ) => {
+  // Function to validate pincode and fetch location details
+  const validatePincodeLocation = async (pincode: string) => {
+    try {
+      const response = await fetch(`https://api.postalpincode.in/pincode/${pincode}`);
+      const data = await response.json();
+      
+      if (data[0].Status === "Success") {
+        const location = data[0].PostOffice[0];
+        const state = location.State;
+        const city = location.District;
+        const area = location.Name;
+        
+        // If location differs, show an informative message but still update
+        if ((formData.state && formData.state !== state) || 
+            (formData.city && formData.city !== city) || 
+            (formData.area && formData.area !== area)) {
+          // Show a temporary notification about the change
+          setErrors({
+            ...errors,
+            pincode: `Location updated based on pincode: ${city}, ${state}`
+          });
+          
+          // Clear the notification after 3 seconds
+          setTimeout(() => {
+            setErrors({
+              ...errors,
+              pincode: ""
+            });
+          }, 3000);
+        }
+        
+        // Always update the location fields with verified data
+        updateFormData({
+          state,
+          city,
+          area,
+          pincode
+        });
+        
+        // Clear any existing errors
+        setErrors({
+          ...errors,
+          pincode: "",
+          state: "",
+          city: "",
+          area: ""
+        });
+        
+        // Update the queries to match the verified data
+        setCityQuery(city);
+        setAreaQuery(area);
+        setCityResults([]);
+        setAreaResults([]);
+        
+      } else {
+        setErrors({
+          ...errors,
+          pincode: "Invalid pincode. Please enter a valid 6-digit pincode."
+        });
+      }
+    } catch (error) {
+      setErrors({
+        ...errors,
+        pincode: "Error validating pincode. Please try again."
+      });
+    }
+  };
   const validate = () => {
     const newErrors: Record<string, string> = {};
     if (!formData.fullName) newErrors.fullName = "Full Name required";
@@ -924,6 +1151,11 @@ const renderDoctorCredentials = (
       newErrors.specialization = "Specialization required";
     if (!formData.phone || !isPhoneValid(formData.phone))
       newErrors.phone = "10-digit phone required";
+    if (!formData.state) newErrors.state = "State is required";
+    if (!formData.city) newErrors.city = "City is required";
+    if (!formData.area) newErrors.area = "Area/Locality is required";
+    if (!formData.pincode || !/^\d{6}$/.test(formData.pincode)) 
+      newErrors.pincode = "Valid 6-digit pincode required";
     if (!formData.age) newErrors.age = "Age required";
     if (!formData.gender) newErrors.gender = "Gender required";
     if (!formData.state) newErrors.state = "State required";
@@ -948,8 +1180,9 @@ const renderDoctorCredentials = (
       </div>
       
       <div className="mb-4">
-        <label className={labelClasses}>Full Name</label>
+        <label className={labelClasses} htmlFor="doctorFullNameInput">Full Name</label>
         <input
+          id="doctorFullNameInput"
           type="text"
           className={inputClasses}
           placeholder="Full Name"
@@ -960,8 +1193,9 @@ const renderDoctorCredentials = (
       </div>
       
       <div className="mb-4">
-        <label className={labelClasses}>Email</label>
+        <label className={labelClasses} htmlFor="doctorEmailInput">Email</label>
         <input
+          id="doctorEmailInput"
           type="email"
           className={inputClasses}
           placeholder="Email"
@@ -999,8 +1233,9 @@ const renderDoctorCredentials = (
       {otpError && <div className={errorClasses}>{otpError}</div>}
       
       <div className="mb-4">
-        <label className={labelClasses}>Password</label>
+        <label className={labelClasses} htmlFor="doctorPasswordInput">Password</label>
         <input
+          id="doctorPasswordInput"
           type="password"
           className={inputClasses}
           placeholder="Password"
@@ -1014,8 +1249,9 @@ const renderDoctorCredentials = (
       </div>
       
       <div className="mb-4">
-        <label className={labelClasses}>Confirm Password</label>
+        <label className={labelClasses} htmlFor="doctorConfirmPasswordInput">Confirm Password</label>
         <input
+          id="doctorConfirmPasswordInput"
           type="password"
           className={inputClasses}
           placeholder="Confirm Password"
@@ -1026,8 +1262,9 @@ const renderDoctorCredentials = (
       </div>
       
       <div className="mb-4">
-        <label className={labelClasses}>License Number</label>
+        <label className={labelClasses} htmlFor="doctorLicenseInput">License Number</label>
         <input
+          id="doctorLicenseInput"
           type="text"
           className={inputClasses}
           placeholder="License Number"
@@ -1038,8 +1275,9 @@ const renderDoctorCredentials = (
       </div>
       
       <div className="mb-4">
-        <label className={labelClasses}>Specialization</label>
+        <label className={labelClasses} htmlFor="doctorSpecializationSelect">Specialization</label>
         <select
+          id="doctorSpecializationSelect"
           className={inputClasses}
           value={formData.specialization}
           onChange={(e) => updateFormData({ specialization: e.target.value })}
@@ -1055,8 +1293,9 @@ const renderDoctorCredentials = (
       </div>
       
       <div className="mb-4">
-        <label className={labelClasses}>Phone Number</label>
+        <label className={labelClasses} htmlFor="doctorPhoneInput">Phone Number</label>
         <input
+          id="doctorPhoneInput"
           type="text"
           className={inputClasses}
           placeholder="10-digit Phone Number"
@@ -1072,8 +1311,9 @@ const renderDoctorCredentials = (
       </div>
       
       <div className="mb-4">
-        <label className={labelClasses}>Age</label>
+        <label className={labelClasses} htmlFor="doctorAgeInput">Age</label>
         <input
+          id="doctorAgeInput"
           type="number"
           className={inputClasses}
           placeholder="Age"
@@ -1086,8 +1326,9 @@ const renderDoctorCredentials = (
       </div>
       
       <div className="mb-4">
-        <label className={labelClasses}>Gender</label>
+        <label className={labelClasses} htmlFor="doctorGenderSelect">Gender</label>
         <select
+          id="doctorGenderSelect"
           className={inputClasses}
           value={formData.gender}
           onChange={(e) => updateFormData({ gender: e.target.value })}
@@ -1100,72 +1341,140 @@ const renderDoctorCredentials = (
         {errors.gender && <div className={errorClasses}>{errors.gender}</div>}
       </div>
       
+  {/* State/city dropdowns removed: now only dynamic city/area search is used */}
+      
       <div className="mb-4">
-        <label className={labelClasses}>State</label>
+        <label className={labelClasses} htmlFor="doctorStateSelect">State</label>
         <select
+          id="doctorStateSelect"
           className={inputClasses}
           value={formData.state}
           onChange={(e) => {
-            updateFormData({ state: e.target.value, city: "" });
+            updateFormData({ state: e.target.value, city: "", area: "" });
           }}
         >
           <option value="">Select State</option>
-          {STATES.map((state) => (
-            <option key={state} value={state}>
-              {state}
-            </option>
-          ))}
+          <option value="Tamil Nadu">Tamil Nadu</option>
+          <option value="Karnataka">Karnataka</option>
+          <option value="Kerala">Kerala</option>
+          <option value="Andhra Pradesh">Andhra Pradesh</option>
+          <option value="Telangana">Telangana</option>
         </select>
         {errors.state && <div className={errorClasses}>{errors.state}</div>}
       </div>
-      
+
       <div className="mb-4">
-        <label className={labelClasses}>City</label>
-        <select
+        <label className={labelClasses} htmlFor="doctorCityInput">City</label>
+        <input
+          id="doctorCityInput"
           className={inputClasses}
-          value={formData.city}
-          onChange={(e) => updateFormData({ city: e.target.value })}
+          placeholder="Type city name"
+          value={cityQuery}
+          onChange={async (e) => {
+            setCityQuery(e.target.value);
+            await fetchCities(e.target.value);
+          }}
+          autoComplete="off"
           disabled={!formData.state}
-        >
-          <option value="">Select City</option>
-          {formData.state &&
-            STATES_WITH_CITIES[formData.state]?.map((city) => (
-              <option key={city} value={city}>
-                {city}
-              </option>
-            ))}
-        </select>
+        />
+        {isLoadingCities && <div className="text-sm text-gray-500">Loading cities...</div>}
+        <div className="relative">
+          {cityResults.length > 0 && (
+            <ul className="absolute z-10 bg-white border rounded w-full max-h-40 overflow-y-auto shadow">
+              {cityResults.map((city: any) => (
+                <li
+                  key={city.id}
+                  className="px-4 py-2 hover:bg-blue-100 cursor-pointer"
+                  onClick={() => {
+                    updateFormData({ city: city.text, area: "" });
+                    setCityQuery(city.text);
+                    setCityResults([]);
+                  }}
+                >
+                  {city.text}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
         {errors.city && <div className={errorClasses}>{errors.city}</div>}
       </div>
-      
+
       <div className="mb-4">
-        <label className={labelClasses}>Area/Locality</label>
+        <label className={labelClasses} htmlFor="doctorAreaInput">Area/Locality</label>
         <input
-          type="text"
+          id="doctorAreaInput"
           className={inputClasses}
-          placeholder="Area/Locality"
-          value={formData.area}
-          onChange={(e) => updateFormData({ area: e.target.value })}
+          placeholder="Type area/locality"
+          value={areaQuery}
+          onChange={async (e) => {
+            setAreaQuery(e.target.value);
+            await fetchAreas(e.target.value + (formData.city ? `,${formData.city}` : ""));
+          }}
+          autoComplete="off"
+          disabled={!formData.city}
         />
+        {isLoadingAreas && <div className="text-sm text-gray-500">Loading areas...</div>}
+        <div className="relative">
+          {areaResults.length > 0 && (
+            <ul className="absolute z-10 bg-white border rounded w-full max-h-40 overflow-y-auto shadow">
+              {areaResults.map((area: any) => (
+                <li
+                  key={area.id}
+                  className="px-4 py-2 hover:bg-blue-100 cursor-pointer"
+                  onClick={() => {
+                    updateFormData({ area: area.text });
+                    setAreaQuery(area.text);
+                    setAreaResults([]);
+                  }}
+                >
+                  {area.text}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
         {errors.area && <div className={errorClasses}>{errors.area}</div>}
       </div>
-      
+
       <div className="mb-4">
-        <label className={labelClasses}>Pincode</label>
-        <input
-          type="text"
-          className={inputClasses}
-          placeholder="Pincode"
-          value={formData.pincode}
-          maxLength={6}
-          onChange={(e) => updateFormData({ pincode: e.target.value })}
-        />
+        <label className={labelClasses} htmlFor="doctorPincodeInput">Pincode</label>
+        <div className="flex gap-2">
+          <input
+            id="doctorPincodeInput"
+            type="text"
+            className={inputClasses}
+            placeholder="Pincode"
+            value={formData.pincode}
+            maxLength={6}
+            onChange={(e) => {
+              const pincode = e.target.value;
+              updateFormData({ pincode });
+              // Clear validation error when user starts typing
+              if (errors.pincode) {
+                setErrors({ ...errors, pincode: "" });
+              }
+              // Auto-validate pincode when 6 digits are entered
+              if (pincode.length === 6 && /^\d{6}$/.test(pincode)) {
+                validatePincodeLocation(pincode);
+              }
+            }}
+          />
+          <button
+            type="button"
+            className="px-4 py-2 bg-[#1669AE] text-white rounded-lg hover:bg-[#135a94] disabled:opacity-50"
+            onClick={() => validatePincodeLocation(formData.pincode)}
+            disabled={!formData.pincode || formData.pincode.length !== 6}
+          >
+            Verify
+          </button>
+        </div>
         {errors.pincode && <div className={errorClasses}>{errors.pincode}</div>}
       </div>
       
       {/* CAPTCHA Section */}
       <div className="mb-4 bg-gray-50 border rounded-md p-3">
-        <label className="block text-gray-700 mb-1 text-sm font-medium">
+        <label className="block text-gray-700 mb-1 text-sm font-medium" htmlFor="doctorCaptchaInput">
           Verify you're human
         </label>
         
@@ -1239,6 +1548,72 @@ const renderDoctorCredentials = (
 };
 
 const Onboarding: React.FC = () => {
+  // Dynamic city/area state for Mapbox API (must be inside component)
+  const [cityQuery, setCityQuery] = React.useState("");
+  const [cityResults, setCityResults] = React.useState<any[]>([]);
+  const [areaQuery, setAreaQuery] = React.useState("");
+  const [areaResults, setAreaResults] = React.useState<any[]>([]);
+  const [isLoadingCities, setIsLoadingCities] = React.useState(false);
+  const [isLoadingAreas, setIsLoadingAreas] = React.useState(false);
+  const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN || import.meta.env.REACT_APP_MAPBOX_TOKEN || "";
+
+  // Fetch cities dynamically using Mapbox
+  const fetchCities = async (query: string) => {
+    setIsLoadingCities(true);
+    try {
+      // Only search if state is selected
+      if (!formData.state) {
+        setCityResults([]);
+        setIsLoadingCities(false);
+        return;
+      }
+      // Query with city and state context for better filtering
+      const searchQuery = query ? `${query}, ${formData.state}` : formData.state;
+      const results = await fetchCitiesAndAreas(searchQuery, MAPBOX_TOKEN, 'place');
+      // Filter to only cities in the selected state
+      const filtered = results.filter(item => {
+        // Check if state context is present in place_name
+        return item.place_name && item.place_name.includes(formData.state);
+      });
+      // Deduplicate by city.text
+      const unique = Array.from(
+        new Map(filtered.map(item => [item.text, item])).values()
+      );
+      setCityResults(unique);
+    } catch (e) {
+      setCityResults([]);
+    }
+    setIsLoadingCities(false);
+  };
+
+  // Fetch areas dynamically using Mapbox
+  const fetchAreas = async (query: string) => {
+    setIsLoadingAreas(true);
+    try {
+      // Only search if city is selected
+      if (!formData.city) {
+        setAreaResults([]);
+        setIsLoadingAreas(false);
+        return;
+      }
+      // Query with area, city, and state context for best filtering
+      const searchQuery = query ? `${query}, ${formData.city}, ${formData.state}` : `${formData.city}, ${formData.state}`;
+      const results = await fetchCitiesAndAreas(searchQuery, MAPBOX_TOKEN, 'locality,neighborhood');
+      // Filter to only areas in the selected city
+      const filtered = results.filter(item => {
+        // Check if city context is present in place_name
+        return item.place_name && item.place_name.includes(formData.city);
+      });
+      // Deduplicate by area.text
+      const unique = Array.from(
+        new Map(filtered.map(item => [item.text, item])).values()
+      );
+      setAreaResults(unique);
+    } catch (e) {
+      setAreaResults([]);
+    }
+    setIsLoadingAreas(false);
+  };
   const [role, setRole] = useState<"user" | "doctor" | "organization">("user");
   const [step, setStep] = useState(0);
   const [formData, setFormData] = useState(initialData);
@@ -1350,6 +1725,26 @@ const Onboarding: React.FC = () => {
     setError("");
     
     try {
+      // Validate date constraints on backend
+      if (formData.preferredDate) {
+        const selectedDate = new Date(formData.preferredDate);
+        const today = new Date();
+        const minDate = new Date(today.getTime() + 2 * 24 * 60 * 60 * 1000); // 2 days from today
+        const maxDate = new Date(today.getTime() + 2 * 30 * 24 * 60 * 60 * 1000); // 2 months from today
+        
+        if (selectedDate < minDate) {
+          setError(`You can only book after 2 days from today (starting from ${minDate.toLocaleDateString()})`);
+          setIsSubmitting(false);
+          return;
+        }
+        
+        if (selectedDate > maxDate) {
+          setError(`You can only book up to 2 months in advance (until ${maxDate.toLocaleDateString()})`);
+          setIsSubmitting(false);
+          return;
+        }
+      }
+      
       // Check if the selected date is already booked
       if (formData.preferredDate && bookedDates.has(formData.preferredDate)) {
         setError("The selected date is already booked by another organization. Please choose a different date.");
@@ -1664,10 +2059,10 @@ Note: If an admin deleted your account, contact them to ensure complete removal.
     if (role === "user") {
       switch (step) {
         case 0:
-          return renderUserBasicInfo(
+          return renderUserBasicInfo({
             formData,
             updateFormData,
-            () => setStep(1),
+            nextStep: () => setStep(1),
             errors,
             setErrors,
             emailVerified,
@@ -1680,8 +2075,20 @@ Note: If an admin deleted your account, contact them to ensure complete removal.
             setCaptchaInput,
             setCaptchaVerified,
             handleCaptchaRefresh,
-            handleCaptchaVerify
-          );
+            handleCaptchaVerify,
+            cityQuery,
+            setCityQuery,
+            cityResults,
+            isLoadingCities,
+            fetchCities,
+            areaQuery,
+            setAreaQuery,
+            areaResults,
+            isLoadingAreas,
+            fetchAreas,
+            setCityResults,
+            setAreaResults
+          });
         case 1:
           return (
             <StepCategory
@@ -1757,7 +2164,19 @@ Note: If an admin deleted your account, contact them to ensure complete removal.
         setCaptchaInput,
         setCaptchaVerified,
         handleCaptchaRefresh,
-        handleCaptchaVerify
+        handleCaptchaVerify,
+        cityQuery,
+        setCityQuery,
+        cityResults,
+        isLoadingCities,
+        fetchCities,
+        areaQuery,
+        setAreaQuery,
+        areaResults,
+        isLoadingAreas,
+        fetchAreas,
+        setCityResults,
+        setAreaResults
       );
     } else if (role === "organization") {
       return renderOrganizationInfo(

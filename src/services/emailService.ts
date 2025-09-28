@@ -2,19 +2,19 @@
 // This file is now a frontend utility to call the backend email API.
 // Do NOT use nodemailer or any Node.js modules here.
 
-// SocioDent Logo - using a reliable public URL or embedded base64
-const SOCIODENT_LOGO_URL = "https://i.postimg.cc/FKGxnhVQ/sociodent-logo.png";
+import { API_ENDPOINTS } from '../config/api';
+
 
 // Enhanced text-based logo with better styling for maximum email compatibility
 const SOCIODENT_TEXT_LOGO = `
-  <div style="text-align: center; padding: 25px; background: linear-gradient(135deg, #ff6b6b 0%, #ee5a52 50%, #4ecdc4 100%); border-radius: 15px; margin-bottom: 25px; box-shadow: 0 4px 15px rgba(0,0,0,0.1);">
-    <div style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 10px; display: inline-block;">
-      <h1 style="color: white; margin: 0; font-size: 32px; font-weight: bold; text-shadow: 2px 2px 4px rgba(0,0,0,0.3); letter-spacing: 1px;">
-        🦷 SocioDent
-      </h1>
-      <p style="color: rgba(255,255,255,0.9); margin: 8px 0 0 0; font-size: 16px; font-style: italic; text-shadow: 1px 1px 2px rgba(0,0,0,0.2);">
+  <div style="text-align: center; margin-bottom: 20px;">
+    <div style="display: inline-block;">
+      <div style="font-size: 32px; font-weight: bold; letter-spacing: 0.5px;">
+        <span style="color: #FF4A4A;">Socio</span><span style="color: #1D4C7C;">Dent</span>
+      </div>
+      <div style="color: #9E9E9E; font-size: 14px; margin-top: 2px;">
         redefining oral care
-      </p>
+      </div>
     </div>
   </div>
 `;
@@ -27,9 +27,6 @@ export interface AppointmentEmailData {
   consultationType: string;
   doctorName?: string;
   doctorSpecialization?: string;
-  paymentMethod: string;
-  paymentAmount: number;
-  paymentId?: string;
   appointmentId: string;
 }
 
@@ -52,8 +49,6 @@ export const sendAppointmentConfirmationEmail = async (data: AppointmentEmailDat
           <p><strong>Time:</strong> ${data.time}</p>
           <p><strong>Consultation Type:</strong> ${data.consultationType}</p>
           ${data.doctorName ? `<p><strong>Doctor:</strong> ${data.doctorName}${data.doctorSpecialization ? ` (${data.doctorSpecialization})` : ''}</p>` : ''}
-          <p><strong>Payment Method:</strong> ${data.paymentMethod}</p>
-          <p><strong>Amount Paid:</strong> ₹${data.paymentAmount}</p>
           <p><strong>Appointment ID:</strong> ${data.appointmentId}</p>
         </div>
         
@@ -65,7 +60,7 @@ export const sendAppointmentConfirmationEmail = async (data: AppointmentEmailDat
         </div>
       </div>
     `;
-    const res = await fetch('http://localhost:3000/api/email/send', {
+    const res = await fetch(API_ENDPOINTS.EMAIL.SEND, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -115,7 +110,7 @@ export const sendDoctorAssignmentEmail = async (data: AppointmentEmailData): Pro
         </div>
       </div>
     `;
-    const res = await fetch('http://localhost:3000/api/email/send', {
+    const res = await fetch(API_ENDPOINTS.EMAIL.SEND, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -131,60 +126,7 @@ export const sendDoctorAssignmentEmail = async (data: AppointmentEmailData): Pro
   }
 };
 
-/**
- * Send payment receipt email to patient via backend API
- */
-export const sendPaymentReceiptEmail = async (data: AppointmentEmailData): Promise<boolean> => {
-  try {
-    if (!data.paymentId) {
-      console.error('Cannot send payment receipt email: No payment ID provided');
-      return false;
-    }
 
-    const subject = 'SocioDent Payment Receipt';
-    const html = `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 5px;">
-        ${SOCIODENT_TEXT_LOGO}
-        <h1 style="color: #4a90e2; text-align: center;">Payment Receipt</h1>
-        <p>Dear <strong>${data.patientName}</strong>,</p>
-        <p>Thank you for your payment. Your transaction has been completed successfully.</p>
-        
-        <div style="background-color: #f5f5f5; padding: 15px; border-radius: 5px; margin: 20px 0;">
-          <h3 style="margin-top: 0; color: #4a90e2;">Payment Details</h3>
-          <p><strong>Payment ID:</strong> ${data.paymentId}</p>
-          <p><strong>Amount Paid:</strong> ₹${data.paymentAmount}</p>
-          <p><strong>Payment Method:</strong> ${data.paymentMethod}</p>
-          <p><strong>Date of Payment:</strong> ${new Date().toLocaleDateString('en-US', {
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric'
-          })}</p>
-          <p><strong>Appointment ID:</strong> ${data.appointmentId}</p>
-        </div>
-        
-        <p>This receipt serves as proof of payment for your dental appointment. Please keep it for your records.</p>
-        <p>If you have any questions regarding your payment, please contact our billing department.</p>
-        
-        <div style="text-align: center; margin-top: 30px; color: #888; font-size: 12px;">
-          <p>© ${new Date().getFullYear()} SocioDent. All rights reserved.</p>
-        </div>
-      </div>
-    `;
-    const res = await fetch('http://localhost:3000/api/email/send', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        to: data.patientEmail,
-        subject,
-        html
-      })
-    });
-    return res.ok;
-  } catch (error) {
-    console.error('Error sending payment receipt email:', error);
-    return false;
-  }
-};
 
 /**
  * Send new doctor registration notification email to admin via backend API
@@ -203,7 +145,7 @@ export const sendNewDoctorRegistrationNotification = async (
         ${SOCIODENT_TEXT_LOGO}
         <h1 style="color: #4a90e2; text-align: center;">New Doctor Registration</h1>
         <p>Hello Admin,</p>
-        <p>A new doctor has registered on SocioDent Smile and is awaiting approval.</p>
+  <p>A new doctor has registered on SocioDent and is awaiting approval.</p>
         
         <div style="background-color: #f5f5f5; padding: 15px; border-radius: 5px; margin: 20px 0;">
           <h3 style="margin-top: 0; color: #4a90e2;">Doctor Details</h3>
@@ -230,7 +172,7 @@ export const sendNewDoctorRegistrationNotification = async (
       </div>
     `;
     
-    const res = await fetch('http://localhost:3000/api/email/send', {
+    const res = await fetch(API_ENDPOINTS.EMAIL.SEND, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -320,7 +262,7 @@ export const sendEnhancedNewAppointmentNotificationToAdmin = async (appointmentD
     // Send to admin email (configured for SocioDent)
     const ADMIN_EMAIL = 'saiaravindanstudiesonly@gmail.com'; // Admin email address
     
-    const res = await fetch('http://localhost:3000/api/email/send', {
+    const res = await fetch(API_ENDPOINTS.EMAIL.SEND, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -384,7 +326,7 @@ export const sendDoctorAssignmentNotificationToDoctor = async (
       </div>
     `;
     
-    const res = await fetch('http://localhost:3000/api/email/send', {
+    const res = await fetch(API_ENDPOINTS.EMAIL.SEND, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -452,7 +394,7 @@ export const sendUserRegistrationSuccessEmail = async (userData: {
       </div>
     `;
     
-    const res = await fetch('http://localhost:3000/api/email/send', {
+    const res = await fetch(API_ENDPOINTS.EMAIL.SEND, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -530,7 +472,7 @@ export const sendDoctorApprovalStatusEmail = async (doctorData: {
       </div>
     `;
     
-    const res = await fetch('http://localhost:3000/api/email/send', {
+    const res = await fetch(API_ENDPOINTS.EMAIL.SEND, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -614,7 +556,7 @@ export const sendDoctorAssignmentEmailToPatient = async (appointmentData: {
       </div>
     `;
     
-    const res = await fetch('http://localhost:3000/api/email/send', {
+    const res = await fetch(API_ENDPOINTS.EMAIL.SEND, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -709,7 +651,7 @@ export const sendNewUserRegistrationNotificationToAdmin = async (userData: {
     
     const ADMIN_EMAIL = 'saiaravindanstudiesonly@gmail.com'; // Admin email address
     
-    const res = await fetch('http://localhost:3000/api/email/send', {
+    const res = await fetch(API_ENDPOINTS.EMAIL.SEND, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -880,7 +822,7 @@ export const sendOrganizationBookingNotification = async (organizationData: any)
 
     const ADMIN_EMAIL = 'saiaravindanstudiesonly@gmail.com'; // Admin email address
     
-    const response = await fetch('http://localhost:3000/api/email/send', {
+    const response = await fetch(API_ENDPOINTS.EMAIL.SEND, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -982,7 +924,7 @@ export const sendOrganizationBookingConfirmation = async (organizationData: any)
       </div>
     `;
 
-    const response = await fetch('http://localhost:3000/api/email/send', {
+    const response = await fetch(API_ENDPOINTS.EMAIL.SEND, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -1066,7 +1008,7 @@ export const sendAppointmentCancellationEmails = async (data: {
     `;
 
     emailPromises.push(
-      fetch('http://localhost:3000/api/email/send', {
+      fetch(API_ENDPOINTS.EMAIL.SEND, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1108,7 +1050,7 @@ export const sendAppointmentCancellationEmails = async (data: {
       `;
 
       emailPromises.push(
-        fetch('http://localhost:3000/api/email/send', {
+        fetch(API_ENDPOINTS.EMAIL.SEND, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1159,7 +1101,7 @@ export const sendAppointmentCancellationEmails = async (data: {
     `;
 
     emailPromises.push(
-      fetch('http://localhost:3000/api/email/send', {
+      fetch(API_ENDPOINTS.EMAIL.SEND, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1172,7 +1114,7 @@ export const sendAppointmentCancellationEmails = async (data: {
 
     // Wait for all emails to be sent
     const results = await Promise.allSettled(emailPromises);
-    results.forEach((result, index) => {
+    results.forEach(result => {
       if (result.status === 'fulfilled' && result.value.ok) {
         emailsSent++;
       }
@@ -1254,7 +1196,7 @@ export const sendMeetingLinkEmail = async (data: {
       </div>
     `;
 
-    const res = await fetch('http://localhost:3000/api/email/send', {
+    const res = await fetch(API_ENDPOINTS.EMAIL.SEND, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1274,7 +1216,6 @@ export const sendMeetingLinkEmail = async (data: {
 export const emailService = {
   sendAppointmentConfirmationEmail,
   sendDoctorAssignmentEmail,
-  sendPaymentReceiptEmail,
   sendNewDoctorRegistrationNotification,
   sendDoctorAssignmentNotificationToDoctor,
   sendUserRegistrationSuccessEmail,

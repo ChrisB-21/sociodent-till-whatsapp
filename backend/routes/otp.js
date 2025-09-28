@@ -50,8 +50,13 @@ router.post('/send', async (req, res) => {
 router.post('/verify', (req, res) => {
   try {
     const { email, otp } = req.body;
+    
+    console.log('🔍 OTP Verification Request:');
+    console.log('Email:', email);
+    console.log('OTP:', otp);
 
     if (!email || !otp) {
+      console.log('❌ Missing email or OTP');
       return res.status(400).json({
         success: false,
         message: 'Email and OTP are required'
@@ -59,6 +64,7 @@ router.post('/verify', (req, res) => {
     }
 
     const result = OTPService.verifyOTP(email, otp);
+    console.log('📊 Verification Result:', result);
     
     if (result.success) {
       res.json({
@@ -72,7 +78,7 @@ router.post('/verify', (req, res) => {
       });
     }
   } catch (error) {
-    console.error('Error in OTP verify route:', error);
+    console.error('💥 Error in OTP verify route:', error);
     res.status(500).json({
       success: false,
       message: 'Internal server error'

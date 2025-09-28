@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import LocationAutocomplete from "@/components/ui/location-autocomplete";
 import { createUserWithEmailAndPassword } from "firebase/auth";
 import { ref, set } from "firebase/database";
 import { auth, db } from "@/firebase";
@@ -21,14 +22,41 @@ const Signup: React.FC = () => {
     adminCode: "", // for admin
     captcha: "",
     captchaInput: "",
-    city: "",
     state: "",
+    district: "",
+    city: "",
+    locality: "",
     area: "",
     pincode: "",
   });
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setForm({ ...form, [e.target.name]: e.target.value });
+  // Handle location change from Mapbox
+  const handleLocationChange = (locationComponents: { state: string; city: string; district?: string; locality?: string; area?: string; pincode?: string }) => {
+    setForm(prev => ({
+      ...prev,
+      state: locationComponents.state,
+      district: locationComponents.district || '',
+      city: locationComponents.city,
+      locality: locationComponents.locality || '',
+      area: locationComponents.area || '',
+      pincode: locationComponents.pincode || prev.pincode
+    }));
+  };
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    const { name, value } = e.target;
+    // Reset dependent fields if a parent is changed
+    if (name === "state") {
+      setForm(f => ({ ...f, state: value, district: "", city: "", locality: "", area: "" }));
+    } else if (name === "district") {
+      setForm(f => ({ ...f, district: value, city: "", locality: "", area: "" }));
+    } else if (name === "city") {
+      setForm(f => ({ ...f, city: value, locality: "", area: "" }));
+    } else if (name === "locality") {
+      setForm(f => ({ ...f, locality: value, area: "" }));
+    } else {
+      setForm(f => ({ ...f, [name]: value }));
+    }
   };
 
   const handleRoleChange = (r: "user" | "doctor" | "admin") => {
@@ -42,10 +70,12 @@ const Signup: React.FC = () => {
       adminCode: "",
       captcha: "KKHX5T",
       captchaInput: "",
-      city: "",
       state: "",
+      district: "",
+      city: "",
+      locality: "",
       area: "",
-      pincode: "",
+      pincode: ""
     });
   };
 
@@ -149,8 +179,10 @@ const Signup: React.FC = () => {
         adminCode: "",
         captcha: "KKHX5T",
         captchaInput: "",
-        city: "",
         state: "",
+        district: "",
+        city: "",
+        locality: "",
         area: "",
         pincode: "",
       });
@@ -204,24 +236,33 @@ const Signup: React.FC = () => {
           Admin
         </button>
       </div>
-      <div className="flex mb-4">
+      <div className="flex mb-4" role="tablist" aria-label="Signup method">
         <button
           className={`flex-1 py-2 rounded-l ${tab === "email" ? "bg-blue-50 font-bold" : "bg-gray-50"}`}
           onClick={() => setTab("email")}
+          role="tab"
+          aria-selected={tab === "email"}
+          aria-controls="signup-email-panel"
+          id="signup-email-tab"
         >
           Email
         </button>
         <button
           className={`flex-1 py-2 rounded-r ${tab === "phone" ? "bg-blue-50 font-bold" : "bg-gray-50"}`}
           onClick={() => setTab("phone")}
+          role="tab"
+          aria-selected={tab === "phone"}
+          aria-controls="signup-phone-panel"
+          id="signup-phone-tab"
         >
           Phone
         </button>
       </div>
       <form onSubmit={handleSubmit}>
         <div className="mb-3">
-          <label className="block mb-1">User Name</label>
+          <label className="block mb-1" htmlFor="name">User Name</label>
           <input
+            id="name"
             type="text"
             name="name"
             className="w-full border rounded px-3 py-2"
@@ -233,8 +274,9 @@ const Signup: React.FC = () => {
         </div>
         {tab === "email" ? (
           <div className="mb-3">
-            <label className="block mb-1">Email Address</label>
+            <label className="block mb-1" htmlFor="email">Email Address</label>
             <input
+              id="email"
               type="email"
               name="email"
               className="w-full border rounded px-3 py-2"
@@ -246,8 +288,9 @@ const Signup: React.FC = () => {
           </div>
         ) : (
           <div className="mb-3">
-            <label className="block mb-1">Phone Number</label>
+            <label className="block mb-1" htmlFor="phone">Phone Number</label>
             <input
+              id="phone"
               type="tel"
               name="phone"
               className="w-full border rounded px-3 py-2"
@@ -259,8 +302,9 @@ const Signup: React.FC = () => {
           </div>
         )}
         <div className="mb-3">
-          <label className="block mb-1">Password</label>
+          <label className="block mb-1" htmlFor="password">Password</label>
           <input
+            id="password"
             type="password"
             name="password"
             className="w-full border rounded px-3 py-2"
@@ -272,8 +316,9 @@ const Signup: React.FC = () => {
         </div>
         {role === "doctor" && (
           <div className="mb-3">
-            <label className="block mb-1">Medical License Number</label>
+            <label className="block mb-1" htmlFor="license">Medical License Number</label>
             <input
+              id="license"
               type="text"
               name="license"
               className="w-full border rounded px-3 py-2"
@@ -285,46 +330,18 @@ const Signup: React.FC = () => {
           </div>
         )}
         
-        {/* Address Fields */}
-        <div className="mb-3">
-          <label className="block mb-1">City</label>
-          <input
-            type="text"
-            name="city"
-            className="w-full border rounded px-3 py-2"
-            placeholder="Enter your city"
-            value={form.city}
-            onChange={handleChange}
-            required
+        {/* Address Fields - Mapbox Autocomplete */}
+        <div className="mb-4">
+          <LocationAutocomplete
+            onLocationChange={handleLocationChange}
+            initialState={form.state}
+            initialCity={form.city}
           />
         </div>
         <div className="mb-3">
-          <label className="block mb-1">State</label>
+          <label className="block mb-1" htmlFor="pincode">Pincode</label>
           <input
-            type="text"
-            name="state"
-            className="w-full border rounded px-3 py-2"
-            placeholder="Enter your state"
-            value={form.state}
-            onChange={handleChange}
-            required
-          />
-        </div>
-        <div className="mb-3">
-          <label className="block mb-1">Area/Locality</label>
-          <input
-            type="text"
-            name="area"
-            className="w-full border rounded px-3 py-2"
-            placeholder="Enter your area/locality"
-            value={form.area}
-            onChange={handleChange}
-            required
-          />
-        </div>
-        <div className="mb-3">
-          <label className="block mb-1">Pincode</label>
-          <input
+            id="pincode"
             type="text"
             name="pincode"
             className="w-full border rounded px-3 py-2"

@@ -44,50 +44,83 @@ export class OTPService {
         email,
         timestamp: Date.now(),
         verified: false
-      });
-
-      // Create email template
+      });      // Create email template - matching the exact format from the screenshot
       const emailHtml = `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-          <h1 style="color: #2563eb; text-align: center; margin-bottom: 30px;">Email Verification</h1>
-          <p>Hello,</p>
-          <p>Your OTP for email verification is:</p>
-          
-          <div style="text-align: center; margin: 30px 0;">
-            <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px; display: inline-block;">
-              <h2 style="color: #2563eb; font-size: 32px; font-weight: bold; letter-spacing: 5px; margin: 0;">${otp}</h2>
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 40px 20px; background-color: #f8f9fa;">
+          <div style="background-color: white; padding: 40px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+            
+            <!-- Header -->
+            <div style="text-align: center; margin-bottom: 40px;">
+              <h1 style="color: #1976d2; font-size: 28px; font-weight: bold; margin: 0;">SocioDent</h1>
+              <p style="color: #666; margin: 10px 0 0 0; font-size: 16px;">Redefining Oral Care for All</p>
             </div>
-          </div>
-          
-          <p>This OTP will expire in 10 minutes.</p>
-          <p>If you didn't request this verification, please ignore this email.</p>
-          
-          <div style="margin-top: 40px; padding-top: 20px; border-top: 1px solid #e5e7eb; text-align: center; color: #6b7280;">
-            <p style="margin: 0;">Best regards,<br/>
-            <strong style="color: #2563eb;">The SocioDent Smile Team</strong></p>
+            
+            <!-- Title -->
+            <h2 style="color: #333; text-align: center; margin: 0 0 30px 0; font-size: 24px; font-weight: 600;">Email Verification Code</h2>
+            
+            <!-- Content -->
+            <p style="color: #333; margin: 0 0 20px 0; font-size: 16px;">Hello,</p>
+            
+            <p style="color: #333; margin: 0 0 30px 0; font-size: 16px; line-height: 1.5;">
+              Thank you for registering with SocioDent. To complete your email verification, please use the following verification code:
+            </p>
+            
+            <!-- OTP Box -->
+            <div style="text-align: center; margin: 30px 0;">
+              <div style="border: 2px solid #1976d2; border-radius: 8px; padding: 20px; display: inline-block; background-color: #f8f9ff;">
+                <div style="color: #1976d2; font-size: 32px; font-weight: bold; letter-spacing: 8px; font-family: 'Courier New', monospace;">${otp}</div>
+              </div>
+            </div>
+            
+            <!-- Important Section -->
+            <div style="margin: 30px 0;">
+              <p style="color: #333; font-weight: bold; margin: 0 0 15px 0; font-size: 16px;">Important:</p>
+              <ul style="color: #333; margin: 0; padding-left: 20px; line-height: 1.6;">
+                <li>This verification code will expire in <strong>5 minutes</strong></li>
+                <li>Please do not share this code with anyone</li>
+                <li>If you did not request this verification, please ignore this email</li>
+              </ul>
+            </div>
+            
+            <p style="color: #333; margin: 20px 0; font-size: 16px; line-height: 1.5;">
+              If you have any questions or need assistance, please contact our support team.
+            </p>
+            
+            <!-- Footer -->
+            <div style="margin-top: 40px; text-align: left;">
+              <p style="color: #333; margin: 0; font-size: 16px;">Best regards,</p>
+              <p style="color: #333; margin: 5px 0 0 0; font-size: 16px; font-weight: 600;">The SocioDent Team</p>
+            </div>
+            
           </div>
         </div>
-      `;
+      `;      const emailText = `
+SocioDent
+Redefining Oral Care for All
 
-      const emailText = `
-        Email Verification
-        
-        Hello,
-        
-        Your OTP for email verification is: ${otp}
-        
-        This OTP will expire in 10 minutes.
-        
-        If you didn't request this verification, please ignore this email.
-        
-        Best regards,
-        The SocioDent Smile Team
-      `;      // Send email using nodemailer transporter
+Email Verification Code
+
+Hello,
+
+Thank you for registering with SocioDent. To complete your email verification, please use the following verification code:
+
+${otp}
+
+Important:
+- This verification code will expire in 5 minutes
+- Please do not share this code with anyone
+- If you did not request this verification, please ignore this email
+
+If you have any questions or need assistance, please contact our support team.
+
+Best regards,
+The SocioDent Team
+      `;// Send email using nodemailer transporter
       const mailOptions = {
-        from: process.env.EMAIL_FROM || '"SocioDent Smile" <saitamars1554@gmail.com>',
+  from: '"SocioDent" <saitamars1554@gmail.com>',
         replyTo: process.env.SMTP_USER || 'saitamars1554@gmail.com',
         to: email,
-        subject: 'Email Verification - SocioDent Smile',
+        subject: 'Email Verification Code',
         html: emailHtml,
         text: emailText
       };
@@ -106,14 +139,19 @@ export class OTPService {
       };
     }
   }
-
   /**
    * Verify OTP
    */
   static verifyOTP(email, enteredOTP) {
+    console.log('🔍 OTPService.verifyOTP called:');
+    console.log('Email:', email);
+    console.log('Entered OTP:', enteredOTP);
+    
     const otpData = otpStorage.get(email);
+    console.log('📊 Stored OTP Data:', otpData);
 
     if (!otpData) {
+      console.log('❌ No OTP found for email');
       return {
         success: false,
         message: 'No OTP found for this email. Please request a new OTP.'
@@ -122,7 +160,11 @@ export class OTPService {
 
     // Check if OTP is expired
     const currentTime = Date.now();
-    if (currentTime - otpData.timestamp > OTP_EXPIRY_TIME) {
+    const timeDiff = currentTime - otpData.timestamp;
+    console.log('⏰ Time difference:', timeDiff, 'ms (expiry:', OTP_EXPIRY_TIME, 'ms)');
+    
+    if (timeDiff > OTP_EXPIRY_TIME) {
+      console.log('❌ OTP expired');
       otpStorage.delete(email);
       return {
         success: false,
@@ -131,7 +173,9 @@ export class OTPService {
     }
 
     // Check if OTP matches
+    console.log('🔢 Comparing OTPs - Stored:', otpData.otp, 'Entered:', enteredOTP);
     if (otpData.otp !== enteredOTP) {
+      console.log('❌ OTP mismatch');
       return {
         success: false,
         message: 'Invalid OTP. Please try again.'
@@ -139,6 +183,7 @@ export class OTPService {
     }
 
     // Mark as verified
+    console.log('✅ OTP verified successfully');
     otpData.verified = true;
     otpStorage.set(email, otpData);
 

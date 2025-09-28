@@ -4,7 +4,6 @@ import {
   FaUser,
   FaUserMd,
   FaUserShield,
-  FaEnvelope,
   FaPhone,
   FaEye,
   FaEyeSlash,
@@ -36,10 +35,9 @@ const Auth = () => {
   const [loginTab, setLoginTab] = useState("user");
   const [loginMethod, setLoginMethod] = useState("email");
   const [form, setForm] = useState({
-    email: "",
+    identifier: "", // username or email
     phone: "",
     password: "",
-    name: "",
   });
   const [showPassword, setShowPassword] = useState(false);
   const [captcha, setCaptcha] = useState(generateCaptcha());
@@ -79,16 +77,33 @@ const Auth = () => {
   // Email-based login handler
   const handleEmailLogin = async () => {
     try {
-      console.log(`Attempting email login with: ${form.email}, mode: ${loginTab}`);
-
+      console.log(`Attempting login with: ${form.identifier}, mode: ${loginTab}`);
+      let emailToUse = form.identifier;
+      // If identifier is not an email, look up user by username
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(form.identifier)) {
+        // Query Firebase for user with this username
+        const usersRef = ref(db, 'users');
+        const snapshot = await get(usersRef);
+        let foundEmail = null;
+        if (snapshot.exists()) {
+          const users = snapshot.val();
+          for (const key in users) {
+            if (users[key].username === form.identifier || users[key].fullName === form.identifier) {
+              foundEmail = users[key].email;
+              break;
+            }
+          }
+        }
+        if (!foundEmail) throw new Error('No user found with this username');
+        emailToUse = foundEmail;
+      }
       // Sign in with Firebase authentication
       const userCredential = await signInWithEmailAndPassword(
         auth,
-        form.email,
+        emailToUse,
         form.password
       );
-      
-      await handleUserAuthentication(userCredential, form.email, "email");
+      await handleUserAuthentication(userCredential, emailToUse, "email");
     } catch (err: any) {
       handleAuthError(err);
     }
@@ -97,7 +112,9 @@ const Auth = () => {
   // Phone-based login handler (with email OTP verification)
   const handlePhoneLogin = async () => {
     try {
-      if (!form.email) {
+      // For phone login, identifier must be an email (for OTP)
+      let emailToUse = form.identifier;
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(form.identifier)) {
         setErrorMessage("Please provide your email address for verification");
         toast({
           title: "Missing Email",
@@ -106,23 +123,18 @@ const Auth = () => {
         });
         return;
       }
-
       if (!isEmailVerified) {
-        // Show the email OTP verification
         setShowEmailOtp(true);
         return;
       }
-
-      console.log(`Attempting phone login with email: ${form.email}, phone: ${form.phone}, mode: ${loginTab}`);
-
+      console.log(`Attempting phone login with email: ${form.identifier}, phone: ${form.phone}, mode: ${loginTab}`);
       // Use the actual email for authentication after OTP verification
       const userCredential = await signInWithEmailAndPassword(
         auth,
-        form.email,
+        emailToUse,
         form.password
       );
-      
-      await handleUserAuthentication(userCredential, form.email, "phone");
+      await handleUserAuthentication(userCredential, emailToUse, "phone");
     } catch (err: any) {
       handleAuthError(err);
     }
@@ -149,11 +161,11 @@ const Auth = () => {
     }
 
     // Database operations with graceful error handling
-    await validateUserInDatabase(userCredential, emailToUse, loginType);
+  await validateUserInDatabase(userCredential);
   };
 
   // Database validation logic
-  const validateUserInDatabase = async (userCredential: any, emailToUse: string, loginType: string) => {
+  const validateUserInDatabase = async (userCredential: any) => {
     try {
       // Try to get user data from the database based on loginTab
       let userData = null;
@@ -161,19 +173,19 @@ const Auth = () => {
       let userName = "";
       
       if (loginTab === "admin") {
-        userData = await getAdminData(userCredential, emailToUse);
+  userData = await getAdminData(userCredential, form.identifier);
         if (userData) {
           userRole = "admin";
           userName = userData.fullName || "Admin";
         }
       } else if (loginTab === "doctor") {
-        userData = await getDoctorData(userCredential, emailToUse);
+  userData = await getDoctorData(userCredential);
         if (userData) {
           userRole = "doctor";
           userName = userData.fullName || "Doctor";
         }
       } else {
-        userData = await getUserData(userCredential, emailToUse);
+  userData = await getUserData(userCredential);
         if (userData) {
           userRole = userData.role || "user";
           userName = userData.fullName || "User";
@@ -188,10 +200,10 @@ const Auth = () => {
       await validateUsername(userData);
 
       // Complete login process
-      await completeLogin(userCredential, userRole, userName, emailToUse, userData);
+  await completeLogin(userCredential, userRole, userName, userData);
 
     } catch (dbError: any) {
-      await handleDatabaseError(dbError, userCredential, emailToUse);
+  await handleDatabaseError(dbError, userCredential);
     }
   };
 
@@ -272,7 +284,7 @@ const Auth = () => {
   };
 
   // Helper function to get doctor data
-  const getDoctorData = async (userCredential: any, emailToUse: string) => {
+  const getDoctorData = async (userCredential: any) => {
     // Try doctors collection first
     const doctorRef = ref(db, `doctors/${userCredential.user.uid}`);
     const doctorSnapshot = await get(doctorRef);
@@ -293,7 +305,7 @@ const Auth = () => {
   };
 
   // Helper function to get regular user data
-  const getUserData = async (userCredential: any, emailToUse: string) => {
+  const getUserData = async (userCredential: any) => {
     const userRef = ref(db, `users/${userCredential.user.uid}`);
     const userSnapshot = await get(userRef);
     
@@ -306,12 +318,11 @@ const Auth = () => {
 
   // Helper function to validate username
   const validateUsername = async (userData: any) => {
-    if (form.name && userData && userData.fullName) {
-      const enteredName = form.name.trim().toLowerCase();
+    // If identifier is not an email, treat as username/fullName and check
+    if (form.identifier && userData && userData.fullName && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(form.identifier)) {
+      const enteredName = form.identifier.trim().toLowerCase();
       const storedName = userData.fullName.trim().toLowerCase();
-      
-      if (enteredName !== storedName) {
-        // Logout the user since authentication succeeded but name check failed
+      if (enteredName !== storedName && form.identifier !== userData.username) {
         await signOut(auth);
         throw new Error("Username does not match our records");
       }
@@ -319,7 +330,7 @@ const Auth = () => {
   };
 
   // Helper function to complete login process
-  const completeLogin = async (userCredential: any, userRole: string, userName: string, emailToUse: string, userData: any) => {
+  const completeLogin = async (userCredential: any, userRole: string, userName: string, userData: any) => {
     // Login succeeded - store user data
     login({
       uid: userCredential.user.uid,
@@ -360,7 +371,7 @@ const Auth = () => {
   };
 
   // Helper function to handle database errors
-  const handleDatabaseError = async (dbError: any, userCredential: any, emailToUse: string) => {
+  const handleDatabaseError = async (dbError: any, userCredential: any) => {
     console.error("Database error:", dbError);
     
     // Check if error indicates user not found in database
@@ -420,10 +431,9 @@ If you believe this is an error, please contact support.`);
 
   useEffect(() => {
     setForm({
-      email: "",
+      identifier: "",
       phone: "",
       password: "",
-      name: "",
     });
     setCaptchaVerified(false);
     setCaptchaInput("");
@@ -494,8 +504,8 @@ If you believe this is an error, please contact support.`);
       {showEmailOtp && (
         <div className="mb-4">
           <EmailOtpVerification
-            userEmail={form.email}
-            userName={form.name}
+            userEmail={form.identifier}
+            userName={form.identifier}
             onVerified={() => {
               setShowEmailOtp(false);
               setIsEmailVerified(true);
@@ -526,104 +536,53 @@ If you believe this is an error, please contact support.`);
       )}
 
       <form onSubmit={handleSubmit} className="space-y-4">
-        {loginTab !== "admin" && (
-          <div>
-            <label className="block text-gray-700 mb-2 text-sm font-medium">
-              User Name
-            </label>
-            <div className="relative">
-              <span className="absolute left-3 top-3 text-gray-400">
-                <FaUser />
-              </span>
-              <input
-                name="name"
-                type="text"
-                value={form.name}
-                onChange={handleChange}
-                className="w-full pl-10 pr-4 py-2 border rounded-md focus:ring-2 focus:ring-sociodent-500"
-                placeholder="Enter your name"
-                required
-              />
-            </div>
+        <div>
+          <label htmlFor="identifier" className="block text-gray-700 mb-2 text-sm font-medium">
+            Username or Email
+          </label>
+          <div className="relative">
+            <span className="absolute left-3 top-3 text-gray-400">
+              <FaUser />
+            </span>
+            <input
+              id="identifier"
+              name="identifier"
+              type="text"
+              value={form.identifier}
+              onChange={handleChange}
+              className="w-full pl-10 pr-4 py-2 border rounded-md focus:ring-2 focus:ring-sociodent-500"
+              placeholder="Enter your username or email"
+              required
+            />
           </div>
-        )}
-
-        {(loginTab === "admin" || loginMethod === "email") && (
-          <div>
-            <label className="block text-gray-700 mb-2 text-sm font-medium">
-              Email Address
-            </label>
-            <div className="relative">
-              <span className="absolute left-3 top-3 text-gray-400">
-                <FaEnvelope />
-              </span>
-              <input
-                name="email"
-                type="email"
-                value={form.email}
-                onChange={handleChange}
-                className={`w-full pl-10 pr-4 py-2 border rounded-md focus:ring-2 focus:ring-sociodent-500 ${
-                  loginTab === "admin" ? "bg-gray-50" : ""
-                }`}
-                placeholder={
-                  loginTab === "admin"
-                    ? "Enter admin email"
-                    : "name@example.com"
-                }
-                required
-              />
-            </div>
-          </div>
-        )}
+        </div>
 
         {loginTab !== "admin" && loginMethod === "phone" && (
-          <>
-            <div>
-              <label className="block text-gray-700 mb-2 text-sm font-medium">
-                Phone Number
-              </label>
-              <div className="relative">
-                <span className="absolute left-3 top-3 text-gray-400">
-                  <FaPhone />
-                </span>
-                <input
-                  name="phone"
-                  type="tel"
-                  value={form.phone}
-                  onChange={handleChange}
-                  className="w-full pl-10 pr-4 py-2 border rounded-md focus:ring-2 focus:ring-sociodent-500"
-                  placeholder="Enter your phone"
-                  required
-                />
-              </div>
+          <div>
+            <label htmlFor="phone" className="block text-gray-700 mb-2 text-sm font-medium">
+              Phone Number
+            </label>
+            <div className="relative">
+              <span className="absolute left-3 top-3 text-gray-400">
+                <FaPhone />
+              </span>
+              <input
+                id="phone"
+                name="phone"
+                type="tel"
+                value={form.phone}
+                onChange={handleChange}
+                className="w-full pl-10 pr-4 py-2 border rounded-md focus:ring-2 focus:ring-sociodent-500"
+                placeholder="Enter your phone"
+                required
+              />
             </div>
-            <div className="mt-3">
-              <label className="block text-gray-700 mb-2 text-sm font-medium">                  Email Address (required for verification)
-              </label>
-              <div className="relative">
-                <span className="absolute left-3 top-3 text-gray-400">
-                  <FaEnvelope />
-                </span>
-                <input
-                  name="email"
-                  type="email"
-                  value={form.email}
-                  onChange={handleChange}
-                  className="w-full pl-10 pr-4 py-2 border rounded-md focus:ring-2 focus:ring-sociodent-500"
-                  placeholder="Enter your email for OTP verification"
-                  required
-                />
-              </div>
-              <p className="text-sm text-gray-500 mt-1">
-                You'll receive a verification code via email
-              </p>
-            </div>
-          </>
+          </div>
         )}
 
         <div>
           <div className="flex justify-between items-center mb-1">
-            <label className="block text-gray-700 text-sm font-medium">
+            <label htmlFor="password" className="block text-gray-700 text-sm font-medium">
               Password
             </label>
             <Link
@@ -635,6 +594,7 @@ If you believe this is an error, please contact support.`);
           </div>
           <div className="relative">
             <input
+              id="password"
               name="password"
               type={showPassword ? "text" : "password"}
               value={form.password}
@@ -646,6 +606,10 @@ If you believe this is an error, please contact support.`);
             <span
               className="absolute right-3 top-3 text-gray-400 cursor-pointer"
               onClick={() => setShowPassword(!showPassword)}
+              role="button"
+              tabIndex={0}
+              onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') setShowPassword(!showPassword); }}
+              aria-label="Toggle password visibility"
             >
               {showPassword ? <FaEyeSlash /> : <FaEye />}
             </span>
@@ -658,7 +622,7 @@ If you believe this is an error, please contact support.`);
         </div>
 
         <div className="bg-gray-50 border rounded-md p-3">
-          <label className="block text-gray-700 mb-1 text-sm font-medium">
+          <label htmlFor="captchaInput" className="block text-gray-700 mb-1 text-sm font-medium">
             Verify you're human
           </label>
           
@@ -672,6 +636,10 @@ If you believe this is an error, please contact support.`);
                 className="ml-2 text-sociodent-500 cursor-pointer"
                 onClick={handleCaptchaRefresh}
                 title="Refresh Captcha"
+                role="button"
+                tabIndex={0}
+                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') handleCaptchaRefresh(); }}
+                aria-label="Refresh Captcha"
               >
                 <FaSyncAlt />
               </span>

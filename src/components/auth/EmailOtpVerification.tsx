@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { API_ENDPOINTS } from "../../config/api";
 
 interface EmailOtpVerificationProps {
   userEmail: string;
@@ -19,7 +20,6 @@ const EmailOtpVerification: React.FC<EmailOtpVerificationProps> = ({
   const [timer, setTimer] = useState<number>(600); // 10 minutes in seconds
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isSent, setIsSent] = useState<boolean>(false);
-  const [generatedOtp, setGeneratedOtp] = useState<string>(""); // Store OTP locally
 
   // Timer countdown
   useEffect(() => {
@@ -28,47 +28,42 @@ const EmailOtpVerification: React.FC<EmailOtpVerificationProps> = ({
         setTimer(prevTimer => prevTimer - 1);
       }, 1000);
       return () => clearInterval(interval);
-    } else if (timer === 0) {
-      // OTP expired, clear the generated OTP
-      setGeneratedOtp("");
     }
   }, [isSent, timer]);
 
-  // Function to generate a random 6-digit OTP
-  const generateOtp = (): string => {
-    return Math.floor(100000 + Math.random() * 900000).toString();
-  };
-
-  // Function to send OTP via email (simplified version)
+  // Function to send OTP via backend API
   const sendOtp = async () => {
     try {
       setIsLoading(true);
 
-      // Generate a new OTP
-      const newOtp = generateOtp();
-      setGeneratedOtp(newOtp);
+      // Send OTP via backend API
+      const response = await fetch(API_ENDPOINTS.OTP.SEND, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: userEmail
+        })
+      });
       
-      // For demo purposes, we'll just store it locally and simulate sending
-      // In a real implementation, you would send this via your email service
-      localStorage.setItem('emailOtp', newOtp);
-      localStorage.setItem('emailOtpEmail', userEmail);
-      localStorage.setItem('emailOtpExpiry', (Date.now() + 600000).toString()); // 10 minutes expiry
+      const result = await response.json();
       
-      console.log(`OTP for ${userEmail}: ${newOtp}`); // For testing - remove in production
-      
-      // Simulate API delay
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      setIsSent(true);
-      setIsLoading(false);
-      setTimer(600); // Reset timer to 10 minutes
-      setOtp("");
-      onError(''); // Clear any previous errors
+      if (response.ok && result.success) {
+        setIsSent(true);
+        setIsLoading(false);
+        setTimer(600); // Reset timer to 10 minutes
+        setOtp("");
+        onError(''); // Clear any previous errors
+        console.log('OTP sent successfully to', userEmail);
+      } else {
+        throw new Error(result.message || 'Failed to send OTP');
+      }
       
     } catch (error: any) {
       console.error("Error sending OTP:", error);
       setIsLoading(false);
-      onError("Failed to send verification code. Please try again.");
+      onError(error.message || "Failed to send verification code. Please try again.");
     }
   };
 
@@ -82,16 +77,25 @@ const EmailOtpVerification: React.FC<EmailOtpVerificationProps> = ({
     try {
       setIsLoading(true);
 
-      if (!generatedOtp) {
-        throw new Error("Verification code has expired. Please request a new one.");
-      }
-
-      // Verify the entered OTP against the generated one
-      if (otp === generatedOtp) {
+      // Verify OTP via backend API
+      const response = await fetch(API_ENDPOINTS.OTP.VERIFY, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: userEmail,
+          otp: otp
+        })
+      });
+      
+      const result = await response.json();
+      
+      if (response.ok && result.success) {
         setIsLoading(false);
         onVerified();
       } else {
-        throw new Error("Invalid verification code. Please try again.");
+        throw new Error(result.message || "Invalid verification code. Please try again.");
       }
     } catch (error: any) {
       console.error("Error verifying OTP:", error);

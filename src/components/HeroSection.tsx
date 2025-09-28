@@ -71,7 +71,7 @@ const HeroSection = () => {
             ) : (
               <>
                 <Link 
-                  to="/auth?mode=signup" 
+                  to="/signup" 
                   className="button-primary text-center"
                 >
                   Create Account

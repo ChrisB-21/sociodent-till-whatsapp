@@ -6,6 +6,7 @@
     "appointments": {
       ".read": "auth != null",
       ".write": "auth != null",
+      ".indexOn": ["userId", "doctorId", "date", "status"],
       "$appointmentId": {
         ".read": "auth != null",
         ".write": "auth != null || !data.exists()"
@@ -36,6 +37,16 @@
       "$userId": {
         ".read": "auth != null || $userId === auth.uid",
         ".write": "auth != null || $userId === auth.uid"
+      }
+    },
+    
+    "orders": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      ".indexOn": ["userId", "userEmail", "status", "createdAt"],
+      "$orderId": {
+        ".read": "auth != null",
+        ".write": "auth != null"
       }
     },
     

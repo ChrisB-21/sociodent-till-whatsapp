@@ -1,6 +1,7 @@
 // WhatsApp Welcome Service - Sends welcome messages using Facebook Graph API
 import { ref, set } from 'firebase/database';
 import { db } from '@/firebase';
+import { API_ENDPOINTS } from '../config/api';
 
 interface WhatsAppConfig {
   accessToken: string;
@@ -80,7 +81,7 @@ export class WhatsAppWelcomeService {
                 {
                   type: "image",
                   image: {
-                    link: "https://as2.ftcdn.net/v2/jpg/02/39/35/83/1000_F_239358311_5Ykfomx4YAvONXsylqUSV0wHIAKZZu6U.jpg"
+                    link: "https://encrypted-tbn0.gstatic.com/images?q=tbn:Ahttps://bizimages.withfloats.com/actual/682ad5cff0567fb7fd1e4275.jpgNd9GcQlTr-JXSkAB9S2I9XbBGmx1dKa0N4btpB8TA&s"
                   }
                 }
               ]
@@ -197,7 +198,7 @@ export class WhatsAppWelcomeService {
    */
   private static async sendViaBackend(data: WelcomeMessageData): Promise<WhatsAppResponse> {
     try {
-      const response = await fetch('http://localhost:3000/api/whatsapp/send-welcome', {
+      const response = await fetch(API_ENDPOINTS.WHATSAPP.SEND_WELCOME, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

@@ -5,11 +5,16 @@ import { ref, onValue } from "firebase/database";
 
 export interface User {
   id: string;
-  fullName: string;
+  fullName?: string;
+  name?: string;
+  displayName?: string;
   email?: string;
   phone?: string;
   role: string;
-  registeredAt: string;
+  registeredAt?: string;
+  status?: string;
+  specialization?: string;
+  createdAt?: string;
   // ...other fields as needed
 }
 

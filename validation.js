@@ -122,3 +122,4 @@ try {
 } catch (error) {
   console.error('❌ Validation failed:', error.message);
 }
+// Moving this file to validation-scripts folder

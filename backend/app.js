@@ -5,6 +5,8 @@ import razorpayRoutes from './routes/razorpay.js';
 import admin from 'firebase-admin';
 import emailRoutes from './routes/email.js';
 import whatsappRoutes from './routes/whatsapp.js';
+import otpRoutes from './routes/otp.js';
+import { generalLimiter, authLimiter, cacheMiddleware } from './middleware/rateLimiter.js';
 
 const app = express();
 
@@ -54,7 +56,7 @@ try {
 
 // Middleware
 app.use(cors({
-  origin: ['http://localhost:8081', 'http://localhost:8082', 'http://localhost:8083', 'http://localhost:3000', 'https://sociodent-smile-database.web.app', '*'],
+  origin: ['http://localhost:8080', 'http://localhost:8082', 'http://localhost:8083', 'http://localhost:3000', 'https://sociodent-smile-database.web.app', '*'],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'Origin', 'Accept', 'X-Requested-With'],
   credentials: true,
@@ -62,10 +64,21 @@ app.use(cors({
 }));
 app.use(express.json());
 
+// Apply general rate limiter to all routes
+app.use(generalLimiter);
+
+// Apply stricter rate limiting to authentication routes
+app.use('/api/auth', authLimiter);
+
+// Apply caching to read-heavy routes
+app.use('/api/doctors', cacheMiddleware);
+app.use('/api/appointments', cacheMiddleware);
+
 // Routes
 app.use('/api/razorpay', razorpayRoutes);
 app.use('/api/email', emailRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
+app.use('/api/otp', otpRoutes);
 
 // Status endpoint for connectivity checking
 app.get('/api/status', (req, res) => {

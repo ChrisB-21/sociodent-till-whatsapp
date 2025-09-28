@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
-import { Menu, X, LogOut, UserCircle } from "lucide-react";
+import { Menu, X, LogOut, UserCircle, ShoppingCart, Heart } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/context/AuthContext";
+import { useCart } from "@/context/CartContext";
+import { useInterest } from "@/context/InterestContext";
 import {
   Sheet,
   SheetContent,
@@ -22,6 +24,8 @@ const Navbar = () => {
   const [isOpen, setIsOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const { user, logout, isLoading } = useAuth();
+  const { getTotalItems } = useCart();
+  const { interests } = useInterest();
   const navigate = useNavigate();
   const location = useLocation();
   const { toast } = useToast();
@@ -124,6 +128,39 @@ const Navbar = () => {
         </nav>
 
         <div className="hidden lg:flex items-center gap-4">
+          {/* Cart and Wishlist Icons are hidden on login/signup (auth) page */}
+          {user && !isAuthPage && (
+            <>
+              {/* Wishlist Icon */}
+              <Link 
+                to="/wishlist" 
+                className="relative p-2 text-gray-700 hover:text-coral-500 transition-colors"
+                title="Wishlist"
+              >
+                <Heart size={20} />
+                {interests.length > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-coral-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
+                    {interests.length}
+                  </span>
+                )}
+              </Link>
+              {/* Cart Icon */}
+              <Link 
+                to="/cart" 
+                className="relative p-2 text-gray-700 hover:text-sociodent-600 transition-colors"
+                title="Shopping Cart"
+              >
+                <ShoppingCart size={20} />
+                {getTotalItems() > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-sociodent-600 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
+                    {getTotalItems()}
+                  </span>
+                )}
+              </Link>
+            </>
+          )}
+
+          {/* Auth buttons remain as is */}
           {isAuthPage ? (
             <>
               <Link to="/auth?mode=login" className="button-text">

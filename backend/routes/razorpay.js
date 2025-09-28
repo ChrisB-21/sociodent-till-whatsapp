@@ -34,35 +34,67 @@ router.post('/create-order', async (req, res) => {
       return res.status(503).json({ message: 'Razorpay service is not available' });
     }
 
-    const { amount, orderType, consultationType } = req.body;
+    const { amount, orderType, consultationType, productInfo } = req.body;
     
     if (!amount || isNaN(amount)) {
       console.error('Invalid amount:', amount);
       return res.status(400).json({ message: 'Invalid amount' });
     }
     
-    // Ensure Razorpay is only used for consultation bookings
-    if (orderType !== 'consultation') {
-      console.error('Invalid order type. Razorpay is only for consultation bookings');
-      return res.status(400).json({ message: 'Razorpay is only available for consultation bookings' });
+    // Validate order type
+    if (!orderType || !['consultation', 'product'].includes(orderType)) {
+      console.error('Invalid order type:', orderType);
+      return res.status(400).json({ message: 'Invalid order type. Must be consultation or product' });
     }
     
-    // Validate consultation type
-    if (!consultationType || !['virtual', 'home', 'clinic'].includes(consultationType)) {
+    // Validate consultation type if order type is consultation
+    if (orderType === 'consultation' && (!consultationType || !['virtual', 'home', 'clinic'].includes(consultationType))) {
       console.error('Invalid consultation type:', consultationType);
       return res.status(400).json({ message: 'Invalid consultation type' });
     }
 
-    console.log(`Creating Razorpay order for ${consultationType} consultation with amount:`, amount);
+    // Validate product info if order type is product
+    if (orderType === 'product' && (!productInfo || !productInfo.id || !productInfo.name)) {
+      console.error('Invalid product info:', productInfo);
+      return res.status(400).json({ message: 'Product information is required for product orders' });
+    }
+
+    console.log(`Creating Razorpay order for ${orderType} with amount:`, amount);
+    console.log('=== BACKEND RAZORPAY DEBUG ===');
+    console.log('Received amount (in paise):', amount);
+    console.log('Amount type:', typeof amount);
+    console.log('Amount in rupees:', amount / 100);
+    console.log('==============================');
+    if (orderType === 'consultation') {
+      console.log('Consultation type:', consultationType);
+    } else {
+      console.log('Product:', productInfo.name);
+    }
     console.log('Using Razorpay Key ID:', process.env.RAZORPAY_KEY_ID);
+    
+    // Create a short receipt (max 40 characters for Razorpay)
+    const timestamp = Date.now().toString().slice(-8); // Last 8 digits of timestamp
+    let receiptPrefix;
+    
+    if (orderType === 'consultation') {
+      receiptPrefix = `cons_${consultationType.substring(0, 4)}`;
+    } else {
+      // For products, use a short product identifier
+      const productId = productInfo.id ? productInfo.id.toString().substring(0, 10) : 'prod';
+      receiptPrefix = `prod_${productId}`;
+    }
+    
+    const receipt = `${receiptPrefix}_${timestamp}`.substring(0, 40); // Ensure max 40 chars
+    
+    console.log('Generated receipt:', receipt, '(length:', receipt.length, ')');
     
     const options = {
       amount: amount, // amount in smallest currency unit (paise for INR)
       currency: "INR",
-      receipt: `consultation_${consultationType}_${Date.now()}`,
+      receipt: receipt,
       notes: {
-        orderType: 'consultation',
-        consultationType: consultationType
+        orderType: orderType,
+        ...(orderType === 'consultation' ? { consultationType } : { productInfo })
       },
     };
 

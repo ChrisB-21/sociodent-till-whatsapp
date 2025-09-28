@@ -17,7 +17,25 @@ const productCategories = [
 ];
 
 const mockProducts = [
-  // ... your mock products here ...
+  {
+    id: 'prostuff-travel-toothbrush',
+    name: 'Prostuff 3-in-1 Portable Travel Toothbrush with Built-in Refillable Toothpaste Tube',
+    image: 'https://m.media-amazon.com/images/I/71EY2n3D40L._SX569_.jpg',
+    price: 3,
+    oldPrice: null,
+    category: 'toothbrush',
+    inStock: true,
+    brand: 'Prostuff.in',
+    description: '3-in-1 portable travel toothbrush with built-in refillable toothpaste tube, built-in toothbrush case, extra soft bristles and 1 cleaning brush. Perfect for travel, camping, and on-the-go oral care.',
+    features: [
+      'Compact and portable design',
+      '3-in-1 functionality (toothbrush, toothpaste tube, case)',
+      'Built-in refillable toothpaste tube',
+      'Extra soft bristles for sensitive teeth',
+      'Includes cleaning brush',
+      'Leak-proof design'
+    ]
+  }
 ];
 
 const Products = () => {
@@ -34,12 +52,24 @@ const Products = () => {
     return matchesSearch && matchesCategory;
   });
 
-  // Add to cart function
-  const handleAddToCart = (productId: string) => {
-    setCartItems(prev => [...prev, productId]);
+  // Handle show interest function
+  const handleShowInterest = (productId: string) => {
+    // Check if user is logged in (you'll need to implement auth context)
+    // For now, let's assume user needs to be logged in
+    const isLoggedIn = false; // Replace with actual auth check
+    
+    if (!isLoggedIn) {
+      toast({
+        title: "Login Required",
+        description: "Please login to show interest in products",
+      });
+      // Redirect to login page
+      return;
+    }
+
     toast({
-      title: "Added to cart",
-      description: "Product has been added to your cart",
+      title: "Interest Recorded",
+      description: "We've recorded your interest in this product",
     });
   };
 
@@ -50,7 +80,7 @@ const Products = () => {
           <div className="container-custom">
             <div className="text-center max-w-3xl mx-auto mb-12">
               <h1 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">
-                Curated Products Picked by <span className="text-coral-500">Socio</span><span className="text-sociodent-700">Dent</span> - <span className="text-coral-500">Coming Soon</span>
+                Curated Products Picked by <span className="text-coral-500">Socio</span><span className="text-sociodent-700">Dent</span>
               </h1>
               <p className="text-lg text-gray-600">
                 Find expert-recommended dental products to maintain your oral health between appointments.
@@ -119,7 +149,23 @@ const Products = () => {
               <div className="text-center py-12">
                 <h3 className="text-lg font-medium text-coral-500">Coming Soon...</h3>
               </div>
-            ) : null}
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                {filteredProducts.map(product => (
+                  <ProductCard
+                    key={product.id}
+                    id={product.id}
+                    name={product.name}
+                    image={product.image}
+                    price={product.price}
+                    oldPrice={product.oldPrice}
+                    category={product.category}
+                    inStock={product.inStock}
+                    brand={product.brand}
+                  />
+                ))}
+              </div>
+            )}
           </div>
         </section>
       </main>
