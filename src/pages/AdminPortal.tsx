@@ -56,6 +56,10 @@ behavioralChallenges?: string;
 licenseNumber?: string;
 specialization?: string;
 createdAt?: number;
+  clinicName?: string;
+  clinicArea?: string;
+  clinicLocation?: string;
+  clinicAddress?: string;
 };
 type DoctorVerification = {
 id: string;
@@ -1103,6 +1107,36 @@ const handleAssignDoctor = async (appointmentId: string, doctorId: string) => {
       console.error('⚠️ Error sending email notification to doctor:', emailError);
       // Don't fail the assignment if email fails
     }
+
+    // If this is a clinic visit, notify the patient with clinic + doctor details
+    try {
+      const consultationTypeFinal = appointmentData.consultationType || 'clinic';
+      if (consultationTypeFinal === 'clinic') {
+        const { sendDoctorAssignmentEmailToPatient } = await import('../services/emailService');
+        // Find doctor's user record for phone/clinic info
+        const doctorUser = users.find(u => u.id === doctorId) as any;
+        const clinicName = doctorUser?.clinicName || doctorUser?.clinicDetails?.name || doctorUser?.clinicAddress || '';
+        const clinicAddress = doctorUser?.clinicAddress || doctorUser?.clinicDetails?.address || '';
+        const doctorPhone = doctorUser?.phone || doctor.phone || '';
+
+        await sendDoctorAssignmentEmailToPatient({
+          patientName: appointmentData.userName || appointmentData.patientName || 'Patient',
+          patientEmail: appointmentData.userEmail || appointmentData.patientEmail || '',
+          doctorName: doctor.name,
+          doctorPhone,
+          doctorSpecialization: doctor.specialization || doctorUser?.specialization || '',
+          date: appointmentData.date,
+          time: appointmentData.time,
+          consultationType: consultationTypeFinal,
+          appointmentId,
+          clinicName: clinicName || undefined,
+          clinicAddress: clinicAddress || undefined
+        });
+        console.log('📧 Patient notified of clinic assignment');
+      }
+    } catch (patientEmailError) {
+      console.error('⚠️ Error sending assignment email to patient:', patientEmailError);
+    }
     
     toast({
       title: 'Doctor Assigned Successfully',
@@ -1215,6 +1249,10 @@ return (
 			  {selectedUser.licenseNumber || 'N/A'}</p>
 			<p><span className="font-medium">Specialization:</span>
 			  {selectedUser.specialization || 'N/A'}</p>
+        {/* Clinic details (optional) - show sensible fallbacks for different stored keys */}
+        <p><span className="font-medium">Clinic Name:</span> {selectedUser.clinicName || (selectedUser as any).clinic?.name || (selectedUser as any).clinicDetails?.name || (selectedUser as any).clinicAddress || 'N/A'}</p>
+        <p><span className="font-medium">Clinic Area:</span> {selectedUser.clinicArea || (selectedUser as any).clinic?.area || (selectedUser as any).clinicDetails?.area || selectedUser.area || selectedUser.locality || 'N/A'}</p>
+        <p><span className="font-medium">Clinic Location / Address:</span> {selectedUser.clinicLocation || (selectedUser as any).clinic?.location || (selectedUser as any).clinicAddress || (selectedUser as any).clinicDetails?.address || (selectedUser as any).address?.full || 'N/A'}</p>
 		  </div>
 		</div>
 	  )}
@@ -1872,6 +1910,23 @@ they will appear here</p>
                                     >
                                       <div className="font-medium text-gray-800">Dr. {doctor.doctorName}</div>
                                       <div className="text-sm text-gray-600">{doctor.specialization}</div>
+                                      {/* Clinic Info: show clinic name and clinic area if available */}
+                                      <div className="text-sm text-gray-500 mt-1">
+                                        <div>
+                                          <span className="font-medium">🏥 Clinic:</span>
+                                          <span className="ml-1">{(() => {
+                                            const doctorUser = users.find(u => u.id === doctor.doctorId);
+                                            return doctorUser?.clinicName || doctor.clinicName || (doctorUser as any)?.clinicDetails?.name || doctorUser?.clinicAddress || 'Not specified';
+                                          })()}</span>
+                                        </div>
+                                        <div>
+                                          <span className="font-medium">📌 Clinic Area:</span>
+                                          <span className="ml-1">{(() => {
+                                            const doctorUser = users.find(u => u.id === doctor.doctorId);
+                                            return doctorUser?.clinicArea || doctor.clinicArea || (doctorUser as any)?.clinicDetails?.area || doctorUser?.area || doctor.area || 'Not specified';
+                                          })()}</span>
+                                        </div>
+                                      </div>
                                       <div className="text-xs text-gray-500 mt-2 space-y-1.5">
                                         <div className="grid grid-cols-2 gap-2">
                                           <div>

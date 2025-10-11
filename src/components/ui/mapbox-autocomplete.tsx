@@ -148,9 +148,10 @@ const MapboxAutocomplete: React.FC<MapboxAutocompleteProps> = ({
 
   // Handle suggestion selection
   const handleSuggestionClick = (feature: MapboxFeature) => {
-    const selectedText = feature.place_name;
-    setInputValue(selectedText);
-    onChange(selectedText, feature);
+    // Use the short name (feature.text) instead of the full place_name
+    const shortName = feature.text || feature.place_name;
+    setInputValue(shortName);
+    onChange(shortName, feature);
     
     if (onFeatureSelect) {
       onFeatureSelect(feature);
@@ -263,10 +264,10 @@ const MapboxAutocomplete: React.FC<MapboxAutocompleteProps> = ({
                   <MapPin size={14} className="text-gray-400 mt-1 flex-shrink-0" />
                   <div className="flex-1 min-w-0">
                     <div className="font-medium text-sm text-gray-900 truncate">
-                      {feature.text}
+                          {feature.text}
                     </div>
                     <div className="text-xs text-gray-500 truncate">
-                      {feature.place_name}
+                          {feature.place_name}
                     </div>
                   </div>
                 </div>

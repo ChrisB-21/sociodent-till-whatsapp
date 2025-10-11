@@ -1,9 +1,15 @@
 import express from 'express';
 import nodemailer from 'nodemailer';
-import dotenv from 'dotenv';
-
-// Load environment variables
-dotenv.config();
+// Load .env only for local development/emulator runs. In production the
+// environment is provided by the host (Firebase runtime config or system env).
+if (process.env.NODE_ENV === 'development' || process.env.FUNCTIONS_EMULATOR) {
+  try {
+    // eslint-disable-next-line global-require
+    require('dotenv').config();
+  } catch (err) {
+    // ignore
+  }
+}
 
 const router = express.Router();
 
@@ -18,14 +24,17 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-// Verify connection on startup
-transporter.verify((error) => {
-  if (error) {
-    console.error('Mail transporter verification failed:', error);
-  } else {
-    console.log('Mail transporter is ready');
-  }
-});
+// Only verify the transporter during local development to avoid making
+// outbound network calls during packaging/validation which can fail unexpectedly.
+if (process.env.NODE_ENV === 'development' || process.env.FUNCTIONS_EMULATOR) {
+  transporter.verify((error) => {
+    if (error) {
+      console.error('Mail transporter verification failed:', error);
+    } else {
+      console.log('Mail transporter is ready');
+    }
+  });
+}
 
 // Send email endpoint
 router.post('/send', async (req, res) => {
@@ -33,8 +42,8 @@ router.post('/send', async (req, res) => {
     const { to, subject, html, text } = req.body;
 
     const mailOptions = {
-      from: process.env.EMAIL_FROM || '"SocioDent Smile" <saitamars1554@gmail.com>',
-      replyTo: process.env.SMTP_USER || 'saitamars1554@gmail.com',
+      from: process.env.EMAIL_FROM || '"SocioDent Smile" <sociodentwebapp@gmail.com>',
+      replyTo: process.env.SMTP_USER || 'sociodentwebapp@gmail.com',
       to,
       subject,
       html,

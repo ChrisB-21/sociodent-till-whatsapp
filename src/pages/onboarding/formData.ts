@@ -43,9 +43,11 @@ export interface DoctorFormData extends BaseFormData {
   specialization: string;
   experienceYears: string;
   certificates: File[];
+  // Optional clinic information requested during signup
   clinicDetails: {
-    name: string;
-    address: string;
+    name: string;        // Clinic name
+    address: string;     // Full clinic address or location description
+    area?: string;       // Short area/neighbourhood for easier search
   };
   professionalMemberships: string[];
   languages: string[];
@@ -182,6 +184,7 @@ export const getInitialFormData = (role: UserRole): FormData => {
         clinicDetails: {
           name: '',
           address: '',
+          area: '',
         },
         professionalMemberships: [],
         languages: [],

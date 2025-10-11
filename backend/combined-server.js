@@ -46,9 +46,27 @@ try {
   console.log('Continuing without Firebase...');
 }
 
-// Configure CORS
+// Configure CORS - allow common local dev origins and reflect localhost origins
+const allowedOrigins = [
+  'http://localhost:8080',
+  'http://localhost:8081',
+  'http://localhost:8082',
+  'http://localhost:8084',
+  'http://localhost:3000',
+  'https://sociodent-smile-database.web.app',
+  'https://sociodent-smile-database.firebaseapp.com'
+];
+
 app.use(cors({
-  origin: ['http://localhost:8080', 'http://localhost:8082', 'http://localhost:8084', 'http://localhost:3000', 'https://sociodent-smile-database.web.app', '*'],
+  origin: function(origin, callback) {
+    // Allow server-to-server requests (no origin) and allowed origins.
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.indexOf(origin) !== -1 || origin.includes('localhost')) {
+      return callback(null, true);
+    }
+    // Reject unknown origins (will cause browser to block)
+    return callback(new Error('Not allowed by CORS'));
+  },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'Origin', 'Accept', 'X-Requested-With'],
   credentials: true,

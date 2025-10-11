@@ -495,12 +495,14 @@ export const sendDoctorAssignmentEmailToPatient = async (appointmentData: {
   patientName: string;
   patientEmail: string;
   doctorName: string;
+  doctorPhone?: string;
   doctorSpecialization?: string;
   date: string;
   time: string;
   consultationType: string;
   appointmentId: string;
   doctorExperience?: string;
+  clinicName?: string;
   clinicAddress?: string;
 }): Promise<boolean> => {
   try {
@@ -519,17 +521,18 @@ export const sendDoctorAssignmentEmailToPatient = async (appointmentData: {
         <div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #28a745;">
           <h3 style="margin-top: 0; color: #28a745;">👨‍⚕️ Your Doctor Details</h3>
           <p><strong>Doctor:</strong> ${appointmentData.doctorName}</p>
+          ${appointmentData.doctorPhone ? `<p><strong>Phone:</strong> ${appointmentData.doctorPhone}</p>` : ''}
           ${appointmentData.doctorSpecialization ? `<p><strong>Specialization:</strong> ${appointmentData.doctorSpecialization}</p>` : ''}
           ${appointmentData.doctorExperience ? `<p><strong>Experience:</strong> ${appointmentData.doctorExperience}</p>` : ''}
         </div>
-        
+
         <div style="background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin: 20px 0;">
           <h3 style="margin-top: 0; color: #0c5460;">📅 Appointment Information</h3>
           <p><strong>Date:</strong> ${appointmentData.date}</p>
           <p><strong>Time:</strong> ${appointmentData.time}</p>
           <p><strong>Type:</strong> ${appointmentData.consultationType}</p>
           <p><strong>Appointment ID:</strong> ${appointmentData.appointmentId}</p>
-          ${appointmentData.clinicAddress ? `<p><strong>Location:</strong> ${appointmentData.clinicAddress}</p>` : ''}
+          ${appointmentData.clinicName || appointmentData.clinicAddress ? `<p><strong>Location:</strong> ${(appointmentData.clinicName ? appointmentData.clinicName + (appointmentData.clinicAddress ? ', ' : '') : '')}${appointmentData.clinicAddress || ''}</p>` : ''}
         </div>
         
         <div style="background-color: #fff3cd; color: #856404; padding: 15px; border-radius: 5px; margin: 20px 0;">

@@ -1,5 +1,12 @@
-import dotenv from 'dotenv';
-dotenv.config();
+// Load .env only in local/emulator runs. Avoid loading during deploy.
+if (process.env.FUNCTIONS_EMULATOR || process.env.NODE_ENV === 'development') {
+  try {
+    // eslint-disable-next-line global-require
+    require('dotenv').config();
+  } catch (err) {
+    // ignore
+  }
+}
 
 import functions from 'firebase-functions';
 import express from 'express';
@@ -24,10 +31,11 @@ const app = express();
 // CORS configuration - crucial for allowing frontend to connect
 app.use(cors({
   origin: [
-    'http://localhost:8080', 
-    'http://localhost:8082', 
-    'http://localhost:8084', 
-    'http://localhost:3000', 
+    'http://localhost:8080',
+    'http://localhost:8081',
+    'http://localhost:8082',
+    'http://localhost:8084',
+    'http://localhost:3000',
     'https://sociodent-smile-database.web.app',
     'https://sociodent-smile-database.firebaseapp.com'
   ],
@@ -70,26 +78,28 @@ try {
 // Configure email transporter
 let emailTransporter;
 try {
-  emailTransporter = nodemailer.createTransporter({
+  // Use createTransport (nodemailer API). Only verify the transporter locally.
+  emailTransporter = nodemailer.createTransport({
     host: process.env.SMTP_HOST || 'smtp.gmail.com',
-    port: parseInt(process.env.SMTP_PORT) || 465,
-    secure: process.env.SMTP_SECURE === 'true' || true,
+    port: parseInt(process.env.SMTP_PORT || '465', 10),
+    secure: typeof process.env.SMTP_SECURE !== 'undefined' ? (process.env.SMTP_SECURE === 'true') : true,
     auth: {
       user: process.env.SMTP_USER,
       pass: process.env.SMTP_PASS
     }
   });
-  
-  // Test the connection
-  emailTransporter.verify((error, success) => {
-    if (error) {
-      console.error('Email transporter verification failed:', error);
-    } else {
-      console.log('Email transporter verified successfully');
-    }
-  });
-  
-  console.log('Email transporter initialized successfully');
+
+  if (process.env.FUNCTIONS_EMULATOR || process.env.NODE_ENV === 'development') {
+    emailTransporter.verify((error) => {
+      if (error) {
+        console.error('Email transporter verification failed:', error);
+      } else {
+        console.log('Email transporter verified successfully');
+      }
+    });
+  }
+
+  console.log('Email transporter initialized');
 } catch (error) {
   console.error('Error initializing email transporter:', error);
 }

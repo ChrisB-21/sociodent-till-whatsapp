@@ -46,10 +46,22 @@ app.get("/", (req, res) => {
     timestamp: new Date().toISOString()
   });
 });
+// Load .env only when running locally (emulator/development). Avoid loading
+// during firebase deploy which can expose reserved keys or cause validation
+// errors.
+if (process.env.FUNCTIONS_EMULATOR || process.env.NODE_ENV === 'development') {
+  try {
+    // eslint-disable-next-line global-require
+    require('dotenv').config();
+  } catch (err) {
+    // ignore
+  }
+}
 
 // Initialize Razorpay with hardcoded values for now (will use env vars later)
+// Initialize Razorpay from environment/runtime config
 let razorpay = null;
-let razorpaySecret = 'kNVGp1kMbI0JHB8yZC4Du3Yn'; // Hardcoded for testing
+let razorpaySecret = process.env.RAZORPAY_KEY_SECRET;
 
 try {
   const keyId = 'rzp_live_IdmsDlhHXg0haO'; // Hardcoded for testing
@@ -71,30 +83,32 @@ try {
 // Email transporter setup
 let emailTransporter;
 try {
-  // Using SMTP2GO as a more reliable option for now
+  // Configure transporter from env/runtime config. Do not perform verify
+  // during packaging/deploy step to avoid outbound network calls.
+  const smtpPort = parseInt(process.env.SMTP_PORT || '465', 10);
+  const smtpSecure = typeof process.env.SMTP_SECURE !== 'undefined' ? (process.env.SMTP_SECURE === 'true') : (smtpPort === 465);
+
   emailTransporter = nodemailer.createTransport({
-    host: 'smtp.gmail.com',
-    port: 587,
-    secure: true,
+    host: process.env.SMTP_HOST || 'smtp.gmail.com',
+    port: smtpPort,
+    secure: smtpSecure,
     auth: {
-      user: 'sociodentwebapp@gmail.com',
-      pass: 'nfsh fksn cagy jlyp'
-    },
-    tls: {
-      rejectUnauthorized: false
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASS
     }
   });
-  
-  // Test the connection
-  emailTransporter.verify((error, success) => {
-    if (error) {
-      console.error('Email transporter verification failed:', error);
-    } else {
-      console.log('Email transporter verified successfully');
-    }
-  });
-  
-  console.log('Email transporter initialized successfully');
+
+  if (process.env.FUNCTIONS_EMULATOR || process.env.NODE_ENV === 'development') {
+    emailTransporter.verify((error) => {
+      if (error) {
+        console.error('Email transporter verification failed:', error);
+      } else {
+        console.log('Email transporter verified successfully');
+      }
+    });
+  }
+
+  console.log('Email transporter initialized');
 } catch (error) {
   console.error('Error initializing email transporter:', error);
 }

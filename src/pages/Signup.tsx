@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import LocationAutocomplete from "@/components/ui/location-autocomplete";
+import MapboxAutocomplete from '@/components/ui/mapbox-autocomplete';
 import { createUserWithEmailAndPassword } from "firebase/auth";
 import { ref, set } from "firebase/database";
 import { auth, db } from "@/firebase";
@@ -19,6 +20,9 @@ const Signup: React.FC = () => {
     password: "",
     phone: "",
     license: "", // for doctor
+    clinicName: "",
+    clinicArea: "",
+    clinicLocation: "",
     adminCode: "", // for admin
     captcha: "",
     captchaInput: "",
@@ -67,6 +71,9 @@ const Signup: React.FC = () => {
       password: "",
       phone: "",
       license: "",
+      clinicName: "",
+      clinicArea: "",
+      clinicLocation: "",
       adminCode: "",
       captcha: "KKHX5T",
       captchaInput: "",
@@ -130,6 +137,9 @@ const Signup: React.FC = () => {
         registeredAt: new Date().toISOString(),
         status: role === "doctor" ? "pending" : "active",
         ...(role === "doctor" && { licenseNumber: form.license }),
+        ...(role === "doctor" && { clinicName: form.clinicName || '' }),
+        ...(role === "doctor" && { clinicArea: form.clinicArea || '' }),
+        ...(role === "doctor" && { clinicLocation: form.clinicLocation || '' }),
         ...(role === "admin" && { adminCode: form.adminCode }),
       };
 
@@ -176,6 +186,9 @@ const Signup: React.FC = () => {
         password: "",
         phone: "",
         license: "",
+        clinicName: "",
+        clinicArea: "",
+        clinicLocation: "",
         adminCode: "",
         captcha: "KKHX5T",
         captchaInput: "",
@@ -328,6 +341,47 @@ const Signup: React.FC = () => {
               required
             />
           </div>
+        )}
+        {role === "doctor" && (
+          <>
+            <div className="mb-3">
+              <label className="block mb-1" htmlFor="clinicName">Clinic Name (optional)</label>
+              <input
+                id="clinicName"
+                type="text"
+                name="clinicName"
+                className="w-full border rounded px-3 py-2"
+                placeholder="Enter clinic name"
+                value={form.clinicName}
+                onChange={handleChange}
+              />
+            </div>
+
+            <div className="mb-3">
+              <MapboxAutocomplete
+                label="Clinic Area / Locality (optional)"
+                placeholder="Type clinic area or locality"
+                value={form.clinicArea}
+                onChange={(val: string) => setForm(f => ({ ...f, clinicArea: val }))}
+                country="IN"
+                types={["locality","neighborhood","place"]}
+                className="w-full"
+              />
+            </div>
+
+            <div className="mb-3">
+              <label className="block mb-1" htmlFor="clinicLocation">Clinic Location / Address (optional)</label>
+              <input
+                id="clinicLocation"
+                type="text"
+                name="clinicLocation"
+                className="w-full border rounded px-3 py-2"
+                placeholder="Enter clinic address or location"
+                value={form.clinicLocation}
+                onChange={handleChange}
+              />
+            </div>
+          </>
         )}
         
         {/* Address Fields - Mapbox Autocomplete */}

@@ -10,6 +10,7 @@ import StepConsent from "@/pages/onboarding/StepConsent";
 import StepOptional from "@/pages/onboarding/StepOptional";
 import { FaUser, FaUserMd, FaSyncAlt, FaBuilding } from "react-icons/fa";
 import { auth, db } from "@/firebase";
+import MapboxAutocomplete from '@/components/ui/mapbox-autocomplete';
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail, deleteUser, signOut } from "firebase/auth";
 import { ref, set, get, push, onValue } from "firebase/database";
 import { CheckCircle } from "lucide-react";
@@ -89,6 +90,11 @@ export const initialData = {
   password: "",
   confirmPassword: "",
   phoneVerified: false,
+  clinicDetails: {
+    name: "",
+    area: "",
+    address: ""
+  },
   // Organization specific fields
   organizationName: "",
   designation: "",
@@ -1273,6 +1279,69 @@ const renderDoctorCredentials = (
         />
         {errors.licenseNumber && <div className={errorClasses}>{errors.licenseNumber}</div>}
       </div>
+      {/* Clinic details - optional fields (appear for doctors) */}
+      <div className="mb-4">
+        <label className={labelClasses} htmlFor="clinicNameInput">Clinic Name (optional)</label>
+        <input
+          id="clinicNameInput"
+          type="text"
+          className={inputClasses}
+          placeholder="Clinic Name"
+          value={(formData as any).clinicDetails?.name || ''}
+          onChange={(e) => updateFormData({ clinicDetails: { ...(formData as any).clinicDetails, name: e.target.value } })}
+        />
+      </div>
+
+      <div className="mb-4">
+        <MapboxAutocomplete
+          label="Clinic Area / Locality (optional)"
+          placeholder="Type clinic area or neighbourhood"
+          value={(formData as any).clinicDetails?.area || (formData as any).area || ''}
+          onChange={(val: string, feature?: any) => {
+            // Update clinicDetails.area and also update overall area/city/state if we can extract components
+            const existing = (formData as any).clinicDetails || { name: '', area: '', address: '' };
+            const newClinic = { ...existing, area: val };
+            if (feature) {
+              // extract components similar to LocationAutocomplete's extractor
+              const ctx = feature.context || [];
+              const comp: any = { state: '', city: '', district: '', locality: '', area: '' };
+              ctx.forEach((c: any) => {
+                const id = (c.id || '').toLowerCase();
+                if (id.includes('region') && !comp.state) comp.state = c.text;
+                else if (id.includes('place') && !comp.city) comp.city = c.text;
+                else if (id.includes('locality') && !comp.locality) comp.locality = c.text;
+                else if (id.includes('neighborhood') && !comp.area) comp.area = c.text;
+                else if (id.includes('district') && !comp.district) comp.district = c.text;
+                else if (id.includes('postcode') && !(formData as any).pincode) (formData as any).pincode = c.text;
+              });
+              // update top-level location fields if they are empty
+              updateFormData({
+                clinicDetails: newClinic,
+                area: comp.area || newClinic.area || (formData as any).area,
+                city: comp.city || (formData as any).city,
+                state: comp.state || (formData as any).state
+              });
+            } else {
+              updateFormData({ clinicDetails: newClinic });
+            }
+          }}
+          country="IN"
+          types={["locality","neighborhood","place"]}
+          className="w-full"
+        />
+      </div>
+
+      <div className="mb-4">
+        <label className={labelClasses} htmlFor="clinicLocationInput">Clinic Location / Address (optional)</label>
+        <input
+          id="clinicLocationInput"
+          type="text"
+          className={inputClasses}
+          placeholder="Clinic Address or location"
+          value={(formData as any).clinicDetails?.address || ''}
+          onChange={(e) => updateFormData({ clinicDetails: { ...(formData as any).clinicDetails, address: e.target.value } })}
+        />
+      </div>
       
       <div className="mb-4">
         <label className={labelClasses} htmlFor="doctorSpecializationSelect">Specialization</label>
@@ -1848,8 +1917,16 @@ const Onboarding: React.FC = () => {
 
     // Specific fields based on role
     if (role === "doctor") {
-      userData.licenseNumber = formData.licenseNumber;
-      userData.specialization = formData.specialization;
+      // Narrow formData to DoctorFormData
+      const doctorForm = formData as any; // lightweight narrowing to avoid TS churn in this patch
+      userData.licenseNumber = doctorForm.licenseNumber;
+      userData.specialization = doctorForm.specialization;
+      // Persist optional clinic details if provided
+      if (doctorForm.clinicDetails) {
+        userData.clinicName = doctorForm.clinicDetails.name || '';
+        userData.clinicAddress = doctorForm.clinicDetails.address || '';
+        userData.clinicArea = doctorForm.clinicDetails.area || '';
+      }
       userData.status = "pending";
       userData.phoneVerified = false;
       userData.emailVerified = emailVerified;
