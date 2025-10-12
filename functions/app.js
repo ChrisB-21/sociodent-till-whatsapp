@@ -5,15 +5,7 @@ import crypto from 'crypto';
 import admin from 'firebase-admin';
 import emailRoutes from './routes/email.js';
 import whatsappRoutes from './routes/whatsapp.js';
-// Load dotenv only when running locally (emulator / development). Avoid loading
-// .env during firebase deploy which can contain reserved keys and break the build.
-if (process.env.FUNCTIONS_EMULATOR || process.env.NODE_ENV === 'development') {
-  import('dotenv')
-    .then((d) => d.config())
-    .catch(() => {
-      console.warn('dotenv not available, continuing without loading .env');
-    });
-}
+import 'dotenv/config';
 
 const app = express();
 
