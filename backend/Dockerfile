@@ -12,8 +12,8 @@ WORKDIR /usr/src/backend
 RUN npm --prefix /usr/src/backend ci --only=production --no-audit --no-fund || npm --prefix /usr/src/backend install --only=production --no-audit --no-fund
 
 # Expose runtime port
-ENV PORT=3001
-EXPOSE 3001
+ENV PORT=3000
+EXPOSE 3000
 
 # Run the backend server entry inside the container
 WORKDIR /usr/src
