@@ -1,21 +1,33 @@
+# Base image
 FROM node:20-slim
 
-# Use /usr/src as root so relative imports that go up to /usr/src/* resolve correctly
-WORKDIR /usr/src
+# Install build dependencies (optional, only if your npm packages need compilation)
+RUN apt-get update && apt-get install -y python3 make g++ && rm -rf /var/lib/apt/lists/*
 
-# Copy the entire repository into the image (build with context=root)
-COPY . .
-
-# Install backend dependencies from backend/package.json
+# Set working directory to backend
 WORKDIR /usr/src/backend
-# Install dependencies using the backend package.json (supports building with repo root context)
-RUN npm --prefix /usr/src/backend ci --only=production --no-audit --no-fund || npm --prefix /usr/src/backend install --only=production --no-audit --no-fund
 
+<<<<<<< HEAD
 # Expose runtime port
 ENV PORT=3000
 EXPOSE 3000
+=======
+# Copy only package files first (for caching)
+COPY backend/package*.json ./
 
-# Run the backend server entry inside the container
+# Install dependencies
+RUN npm ci --only=production --no-audit --no-fund || npm install --only=production --no-audit --no-fund
+
+# Copy backend source code
+COPY backend/. .
+
+# Expose port
+ENV PORT=3001
+EXPOSE 3001
+>>>>>>> ae0061e (chore(dev): add ngrok tunnel helpers and npm scripts; update backend Dockerfile and server config; add deployment scripts)
+
+# Set working directory to root (optional)
 WORKDIR /usr/src
-# Run the backend server entry inside the container (backend/combined-server.js when built from repo root)
+
+# Run backend server
 CMD ["node", "backend/combined-server.js"]
