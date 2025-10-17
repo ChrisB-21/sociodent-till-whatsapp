@@ -16,6 +16,12 @@ RUN npm ci --only=production --no-audit --no-fund || npm install --only=producti
 # Copy backend source code
 COPY backend/. .
 
+# Move to repo root within image to lay out shared folders
+WORKDIR /usr/src
+
+# Copy shared services used by backend route handlers
+COPY services ./services
+
 # Expose port
 ENV PORT=3001
 EXPOSE 3001
