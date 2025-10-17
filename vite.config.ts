@@ -14,7 +14,7 @@ export default defineConfig(() => ({
     port: 8081, // Using port 8081
     proxy: {
       '/api': {
-        target: 'http://104.214.168.102:3000/',
+        target: 'http://localhost:3000/',
         changeOrigin: true,
         secure: false,
         logLevel: 'debug',
