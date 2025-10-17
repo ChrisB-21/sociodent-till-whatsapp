@@ -1,9 +1,11 @@
 # Exclude everything by default, then include backend
 **
 
-# Ensure backend directory itself is included
+# Ensure backend and services directories themselves are included
 !backend
 !backend/**
+!services
+!services/**
 
 # Inside backend context, ignore node_modules and logs
 backend/node_modules
