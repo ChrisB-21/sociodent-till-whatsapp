@@ -1,0 +1,27 @@
+# Exclude everything by default, then include backend
+**
+
+# Ensure backend directory itself is included
+!backend
+!backend/**
+
+# Inside backend context, ignore node_modules and logs
+backend/node_modules
+backend/npm-debug.log*
+backend/yarn-debug.log*
+backend/yarn-error.log*
+
+# Avoid copying secrets or env files into image
+**/*.env
+**/.env
+**/.env.*
+**/sociodent-*.json
+**/firebase_private_key_escaped.txt
+**/serviceAccountKey.json
+**/*firebase-adminsdk*.json
+**/ngrok.log
+**/ngrok_out.log
+
+# VCS
+.git
+.gitignore

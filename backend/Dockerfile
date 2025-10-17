@@ -14,7 +14,7 @@ COPY backend/package*.json ./
 RUN npm ci --only=production --no-audit --no-fund || npm install --only=production --no-audit --no-fund
 
 # Copy backend source code
-COPY . .
+COPY backend/. .
 
 # Expose port
 ENV PORT=3001
