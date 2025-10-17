@@ -22,6 +22,9 @@ WORKDIR /usr/src
 # Copy shared services used by backend route handlers
 COPY services ./services
 
+# Ensure services can resolve backend-installed dependencies
+RUN ln -s /usr/src/backend/node_modules /usr/src/node_modules
+
 # Expose port
 ENV PORT=3001
 EXPOSE 3001
